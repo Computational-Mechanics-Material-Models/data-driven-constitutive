@@ -1,38 +1,25 @@
 #!/usr/bin/env python
-# coding: utf-8
 
-# In[ ]:
-
-
-##Pytorch
-
-
-# In[ ]:
-
+# PyTorch Script for Long Short-Term Memory (LSTM) networks
+# and Gated Recursive Units (GRU) networks to model quasi-brittle materials
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import optuna
 import numpy as np
+import pandas as pd
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
-import numpy as np
-from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
-
-
-# In[ ]:
 
 
 # Check available GPUs
 physical_devices = torch.cuda.device_count()
 print(f"Available GPUs: {physical_devices}")
 
-# Set the GPU to use
-gpu_id = 4  # Choose the desired GPU index
-
-# Ensure the selected GPU exists
+# Choose the desired GPU index
+gpu_id = 4
 if gpu_id < physical_devices:
     device = torch.device(f"cuda:{gpu_id}")
     torch.cuda.set_device(device)  # Set the current device
@@ -40,50 +27,41 @@ if gpu_id < physical_devices:
 else:
     device = torch.device("cpu")
     print(f"GPU {gpu_id} not available, using CPU instead.")
-
 # Example: Move a tensor to the selected GPU
 tensor_example = torch.tensor([1.0, 2.0, 3.0]).to(device)
 print(tensor_example.device)  # Should print "cuda:4" if GPU 4 is available
 
 
-# In[ ]:
-
-
-import pandas as pd
-import numpy as np
-
-# 文件路径
-file_paths = [
-
-    "averaged_size_30_strain22.csv",
-
-]
-
-# 读取数据
+# Read in and process file containing loading history for multiple tests
+# step, strain11, strain22, strain33, strain12, strain13, strain23, stress11, stress22, stress33, stress12, stress13, stress23, index, size, material
+# 1000 steps = [0 ; 999] vertically stacked for a given test, one step per row
+# 100 blocks (index = [0 ; 99]) of 1000 steps vertically stacked. What is the index representing ? One index per test ?
+# material = 0 for all tests
+# size = 30 for all tests
+# TODO: I have no idea what units stress, strain, size are!
+# TODO: Is there is any normalization?
+# TODO: Pandas uses its own `index`, so using a variable named `index` might be confusing. Consider changing name
+file_paths = ["averaged_size_30_strain22.csv",]
 df_list = [pd.read_csv(file) for file in file_paths]
 
-# 逐个增加索引
+# Make index unique for all files in in case multiple files with similar format
+# i.e., index start at zero are in `file_paths`
 index_offset = 0
 for df in df_list:
     df['index'] = df['index'] + index_offset
     index_offset += len(df['index'].unique())
 
-# 合并数据
+# Combine clean and export consolidated data in files
 df_combined = pd.concat(df_list, ignore_index=False)
-
-# 删除缺失值
 df_combined.dropna(inplace=True)
-
-# 转换数据类型为 float64
-df_combined = df_combined.astype(np.float64)
-
-# 显示前 1001 行
-print(df_combined.head(1001))
+df_combined = df_combined.astype(np.float64) # TODO: float 32 precise enough for ML applications?
+print(df_combined.head(1001)) # TODO: Do not use hardcoded value !!!
 df_combined.to_csv("combined_dataset.csv", index=False)
 
 
-# In[ ]:
-
+# TODO: Ask Yuhui: files not provided
+# TODO: The `strain_generation` script does not create files in .txt format or with angle1 name
+# TODO: No idea how these files should be obtained...
 
 angle1 = np.genfromtxt("angle1.txt", delimiter=',')
 angle2 = np.genfromtxt("angle2.txt", delimiter=',')
@@ -92,7 +70,7 @@ angle3 = np.genfromtxt("angle3.txt", delimiter=',')
 
 # In[ ]:
 
-
+# TODO consider moving function definitions at start of file
 def generateRmatrix(angle1, angle2, angle3):
     R1 = np.array([[np.cos(angle1), -np.sin(angle1), 0],[np.sin(angle1), np.cos(angle1), 0],[0, 0, 1]])
     print(R1.shape)
