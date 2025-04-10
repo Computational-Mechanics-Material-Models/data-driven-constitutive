@@ -613,17 +613,6 @@ train_model(model, train_loader, optimizer, epochs)
     
 ###GRU
 
-
-
-
-def generateRmatrix(angle1, angle2, angle3):
-    R1 = np.array([[np.cos(angle1), -np.sin(angle1), 0],[np.sin(angle1), np.cos(angle1), 0],[0, 0, 1]])
-    print(R1.shape)
-    R2 = np.array([[np.cos(angle2), 0, np.sin(angle2)], [0,1,0], [-np.sin(angle2), 0, np.cos(angle2)]])
-    R3 = np.array([[1, 0, 0], [0, np.cos(angle3), -np.sin(angle3)], [0, np.sin(angle3), np.cos(angle3)]])
-    R = np.matmul(np.matmul(R1, R2), R3)
-    return R
-
 R=generateRmatrix(angle1[0], angle2[0], angle3[0])
 print(R)
 
