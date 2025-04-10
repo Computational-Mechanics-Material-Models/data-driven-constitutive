@@ -615,41 +615,6 @@ train_model(model, train_loader, optimizer, epochs)
 
 
 
-import pandas as pd
-import numpy as np
-
-# 文件路径
-file_paths = [
-
-    "averaged_size_30_strain22.csv",
-
-]
-
-# 读取数据
-df_list = [pd.read_csv(file) for file in file_paths]
-
-# 逐个增加索引
-index_offset = 0
-for df in df_list:
-    df['index'] = df['index'] + index_offset
-    index_offset += len(df['index'].unique())
-
-# 合并数据
-df_combined = pd.concat(df_list, ignore_index=False)
-
-# 删除缺失值
-df_combined.dropna(inplace=True)
-
-# 转换数据类型为 float64
-df_combined = df_combined.astype(np.float64)
-
-# 显示前 1001 行
-print(df_combined.head(1001))
-df_combined.to_csv("combined_dataset.csv", index=False)
-
-
-# In[ ]:
-
 
 def generateRmatrix(angle1, angle2, angle3):
     R1 = np.array([[np.cos(angle1), -np.sin(angle1), 0],[np.sin(angle1), np.cos(angle1), 0],[0, 0, 1]])
