@@ -100,47 +100,22 @@ e_max = 2 * upper_bound
 
 # In[ ]:
 
-
-import numpy
-for aa in range(100):
-
-    kernelID = 6 #kernel type. It's specified in the function definition
-
-    num_seqs = 1
-    numPerSeq = 1
+def generate_strain_histories(control_points, step_points, lower_bound, upper_bound, kernelID, numRealizations, num_seqs, numPerSeq):
+    N_timesteps = len(step_points)
     e1_seqs = np.zeros([N_timesteps, num_seqs * numPerSeq])
     e2_seqs = np.zeros([N_timesteps, num_seqs * numPerSeq]) 
-    e3_seqs = np.zeros([N_timesteps, num_seqs * numPerSeq]) 
-    theta_seqs = np.zeros([N_timesteps, num_seqs * numPerSeq])
+    e3_seqs = np.zeros([N_timesteps, num_seqs * numPerSeq])
+    for n in range(numRealizations):
+        for i in range(num_seqs):
+            e1_seqs[:, i * numPerSeq : (i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
+            e2_seqs[:, i * numPerSeq : (i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
+            e3_seqs[:, i * numPerSeq : (i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
+        np.savetxt(f"e1_seqs_{n}.csv", e1_seqs, delimiter = ",")
+        np.savetxt(f"e1_seqs_{n}.csv", e2_seqs, delimiter = ",")
+        np.savetxt(f"e1_seqs_{n}.csv", e3_seqs, delimiter = ",")
+    return e1_seqs, e2_seqs, e3_seqs
 
-    for i in range(num_seqs):
-        e1_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
-        e2_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
-        e3_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
-    
-    
-    numpy.savetxt("e1_seqs_"+str(aa)+".csv", e1_seqs, delimiter = ",")
-    numpy.savetxt("e2_seqs_"+str(aa)+".csv", e2_seqs, delimiter = ",")
-    numpy.savetxt("e3_seqs_"+str(aa)+".csv", e3_seqs, delimiter = ",")
-
-
-# In[ ]:
-
-
-kernelID = 6 #kernel type. It's specified in the function definition
-
-num_seqs = 1
-numPerSeq = 1
-e1_seqs = np.zeros([N_timesteps, num_seqs * numPerSeq])
-e2_seqs = np.zeros([N_timesteps, num_seqs * numPerSeq]) 
-e3_seqs = np.zeros([N_timesteps, num_seqs * numPerSeq]) 
-theta_seqs = np.zeros([N_timesteps, num_seqs * numPerSeq])
-
-for i in range(num_seqs):
-    e1_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
-    e2_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
-    e3_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
-
+e1_seqs, e2_seqs, e3_seqs = generate_strain_histories(control_points, step_points, lower_bound, upper_bound, kernelID = 6, numRealizations = 100, num_seqs = 1, numPerSeq = 1)
 
 
 # In[11]:
