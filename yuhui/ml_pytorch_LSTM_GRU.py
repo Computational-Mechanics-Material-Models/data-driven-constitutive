@@ -564,28 +564,6 @@ print(R)
 
 # In[ ]:
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import numpy as np
-import optuna
-from torch.utils.data import DataLoader, TensorDataset
-from sklearn.model_selection import train_test_split
-
-# Check for GPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-
-# Simulate dataset (Replace with real data)
-num_samples, sequence_length, num_features = 100, 1000, 6
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
-
-X_train = torch.tensor(X_train, dtype=torch.float32).to(device)
-y_train = torch.tensor(y_train, dtype=torch.float32).to(device)
-X_test = torch.tensor(X_test, dtype=torch.float32).to(device)
-y_test = torch.tensor(y_test, dtype=torch.float32).to(device)
-
 # Define GRU Model
 class GRUModel(nn.Module):
     def __init__(self, input_dim, hidden_dim1, hidden_dim2, dropout1, dropout2):
