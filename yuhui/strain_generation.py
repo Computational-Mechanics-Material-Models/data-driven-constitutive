@@ -231,17 +231,7 @@ theta=np.reshape(theta_seqs,-1,order='F')
 
 
 a=plt.plot(e1)
-
-
-# In[12]:
-
-
 a=plt.plot(e2)
-
-
-# In[13]:
-
-
 a=plt.plot(theta)
 
 
@@ -273,17 +263,7 @@ e_22 = (-e1+e2)*np.cos(theta)*np.cos(theta)+e1
 
 
 a,b,c = plt.hist(e_11,100)
-
-
-# In[17]:
-
-
 a,b,c = plt.hist(e_12,100)
-
-
-# In[18]:
-
-
 a,b,c = plt.hist(e_22,100)
 
 
@@ -312,47 +292,13 @@ plt.hist2d(e1_seqs)
 # In[ ]:
 
 
-a=np.arange(n_timesteps)
-
-
-# In[ ]:
-
-
+a=np.arange(N_timesteps)
 a.shape
-
-
-# In[ ]:
-
 
 e1_seqs.shape
 
-
-# In[ ]:
-
-
 b=np.array([a,a])
-
-
-# In[ ]:
-
-
 b.shape
 
-
-# In[ ]:
-
-
 c=np.array([a,b])
-
-
-# In[ ]:
-
-
 c.shape
-
-
-# In[ ]:
-
-
-
-
