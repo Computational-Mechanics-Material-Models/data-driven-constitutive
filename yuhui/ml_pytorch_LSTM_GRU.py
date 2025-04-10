@@ -610,30 +610,9 @@ train_model(model, train_loader, optimizer, epochs)
 
 
 # In[ ]:
+    
 ###GRU
 
-# Check available GPUs
-physical_devices = torch.cuda.device_count()
-print(f"Available GPUs: {physical_devices}")
-
-# Set the GPU to use
-gpu_id = 4  # Choose the desired GPU index
-
-# Ensure the selected GPU exists
-if gpu_id < physical_devices:
-    device = torch.device(f"cuda:{gpu_id}")
-    torch.cuda.set_device(device)  # Set the current device
-    print(f"Binding to GPU {gpu_id}: {torch.cuda.get_device_name(gpu_id)}")
-else:
-    device = torch.device("cpu")
-    print(f"GPU {gpu_id} not available, using CPU instead.")
-
-# Example: Move a tensor to the selected GPU
-tensor_example = torch.tensor([1.0, 2.0, 3.0]).to(device)
-print(tensor_example.device)  # Should print "cuda:4" if GPU 4 is available
-
-
-# In[ ]:
 
 
 import pandas as pd
