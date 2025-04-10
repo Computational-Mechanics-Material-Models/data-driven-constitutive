@@ -20,14 +20,13 @@ from matplotlib import pyplot as plt
 
 # TODO: The docstring describes arguments that are not in the function signature
 # Figure out what is actually happening and update it
-def GPSample(control_points, step_points, lower, upper, seed = 1, kernelID = 0, numSamples = 1):
+def GPSample(control_points, step_points, lower, upper, kernelID = 0, numSamples = 1):
     '''Gaussian Process supperle generator
      
     Args:
         tlist (array of dim 1): time points at which you want the values
         tchar (float): characteristic time of the GP
         upper (float): the upperlitude of the proces. 
-        seed (int): random seed
         kernelID (int): specify the kernel to use in the GP (range from 0 to 8)
         numSamples (int): specifies the number of sequences in the output
         cont_level (int): continuity level at origin. If it is 0 (for C0), the 
@@ -105,7 +104,6 @@ e_max = 2 * upper_bound
 import numpy
 for aa in range(100):
 
-    seed = 1 #a random seed
     kernelID = 6 #kernel type. It's specified in the function definition
 
     num_seqs = 1
@@ -116,12 +114,9 @@ for aa in range(100):
     theta_seqs = np.zeros([N_timesteps, num_seqs * numPerSeq])
 
     for i in range(num_seqs):
-        e1_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, seed, kernelID, numPerSeq)
-        seed = seed + 1
-        e2_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, seed, kernelID, numPerSeq)
-        seed = seed + 1
-        e3_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, seed, kernelID, numPerSeq)
-        seed = seed + 1
+        e1_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
+        e2_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
+        e3_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
     
     
     numpy.savetxt("e1_seqs_"+str(aa)+".csv", e1_seqs, delimiter = ",")
@@ -132,7 +127,6 @@ for aa in range(100):
 # In[ ]:
 
 
-seed = 1 #a random seed
 kernelID = 6 #kernel type. It's specified in the function definition
 
 num_seqs = 1
@@ -143,12 +137,10 @@ e3_seqs = np.zeros([N_timesteps, num_seqs * numPerSeq])
 theta_seqs = np.zeros([N_timesteps, num_seqs * numPerSeq])
 
 for i in range(num_seqs):
-    e1_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, seed, kernelID, numPerSeq)
-    seed = seed + 1
-    e2_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, seed, kernelID, numPerSeq)
-    seed = seed + 1
-    e3_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, seed, kernelID, numPerSeq)
-    seed = seed + 1
+    e1_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
+    e2_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
+    e3_seqs[0 : N_timesteps, i * numPerSeq:(i+1) * numPerSeq] = GPSample(control_points, step_points, lower_bound, upper_bound, kernelID, numPerSeq)
+
 
 
 # In[11]:
