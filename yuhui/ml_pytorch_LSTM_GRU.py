@@ -12,11 +12,17 @@ import pandas as pd
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
+import random
 
 
 # Check available GPUs
 physical_devices = torch.cuda.device_count()
 print(f"Available GPUs: {physical_devices}")
+
+
+# # Check for GPU
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# print(f"Using device: {device}")
 
 # Choose the desired GPU index
 gpu_id = 4
@@ -218,7 +224,7 @@ import torch.nn.functional as F
 def make_custom_loss_batch(model, X_batch):
     def custom_loss(y_pred, y_true):
         # Convert R to a PyTorch tensor
-        R_tensor = torch.tensor(R, dtype=torch.float32, device=y_pred.device)
+        R_tensor = torch.tensor(R, dtype=torch.float32, device=y_pred.device) # TODO: DO NOT USE GLOBALS LIKE `R` !
         strain = X_batch.to(dtype=torch.float32)
 
         # Extract the diagonal strain components (first three features)
@@ -272,18 +278,8 @@ def make_custom_loss_batch(model, X_batch):
 
     return custom_loss
 
-
 # In[ ]:
 
-
-# Check for GPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-
-# # Simulate dataset (Replace with real data)
-num_samples, sequence_length, num_features = 100, 1000, 6
-# X = np.random.rand(num_samples, sequence_length, num_features).astype(np.float32)
-# y = np.random.rand(num_samples, 6).astype(np.float32)  # Output shape (batch_size, 6)
 
 # Convert dataset to PyTorch tensors
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
@@ -308,9 +304,10 @@ class LSTMModel(nn.Module):
         x = self.dropout1(x)
         x, _ = self.lstm2(x)
         x = self.dropout2(x)
-        x = self.fc(x) 
+        x = self.fc(x) # Select last timestep for prediction
         print(f"Output shape from LSTM: {x.shape}")  # Debugging
         return x
+
 
 # Define Optuna Objective Function
 def objective(trial):
@@ -371,61 +368,6 @@ print("Best hyperparameters:", study.best_params)
 
 # In[ ]:
 
-
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import numpy as np
-from torch.utils.data import DataLoader, TensorDataset
-from sklearn.model_selection import train_test_split
-
-# Check for GPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-
-# Simulate dataset (Replace with real data)
-num_samples, sequence_length, num_features = 100, 1000, 6
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=40)
-
-
-
-X_train = torch.tensor(X_train, dtype=torch.float32).to(device)
-y_train = torch.tensor(y_train, dtype=torch.float32).to(device)
-X_test = torch.tensor(X_test, dtype=torch.float32).to(device)
-y_test = torch.tensor(y_test, dtype=torch.float32).to(device)
-
-# Define LSTM Model
-class LSTMModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim1, hidden_dim2, dropout1, dropout2):
-        super(LSTMModel, self).__init__()
-        self.lstm1 = nn.LSTM(input_dim, hidden_dim1, batch_first=True)
-        self.dropout1 = nn.Dropout(dropout1)
-        self.lstm2 = nn.LSTM(hidden_dim1, hidden_dim2, batch_first=True)
-        self.dropout2 = nn.Dropout(dropout2)
-        self.fc = nn.Linear(hidden_dim2, 6)  # Output layer for regression
-
-    def forward(self, x):
-        x, _ = self.lstm1(x)
-        x = self.dropout1(x)
-        x, _ = self.lstm2(x)
-        x = self.dropout2(x)
-        x = self.fc(x)  # Select last timestep for prediction
-        return x
-
-
-# def train_model(model, train_loader, optimizer, epochs):
-#     model.train()
-#     for epoch in range(epochs):
-#         total_loss_epoch = 0.0
-#         for X_batch, y_batch in train_loader:
-#             optimizer.zero_grad()
-#             y_pred = model(X_batch)
-#             loss = make_custom_loss_batch(y_pred, y_batch)  # Use custom loss
-#             # loss.backward()
-#             optimizer.step()
-#             total_loss_epoch += loss.item()
-#         print(f'Epoch {epoch + 1}/{epochs} - Total Loss: {total_loss_epoch}')
         
 def train_model(model, train_loader, optimizer, epochs):
     model.train()
