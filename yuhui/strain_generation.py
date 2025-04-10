@@ -3,20 +3,10 @@
 # Script to generate random strain histories for input to RVE simulations
 
 import numpy as np
-import sys
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import (RBF, Matern, RationalQuadratic,
                                               ExpSineSquared, DotProduct, ConstantKernel,
                                               Exponentiation)
-import warnings #for deprecated decorator
-import functools #for deprecated decorator
-import inspect #for deprecated decorator
-
-from time import time #for Timer
-from datetime import datetime #for Timer
-import os, glob #for clearVtkOutputDirectory
-
-from matplotlib import pyplot as plt
 
 # TODO: The docstring describes arguments that are not in the function signature
 # Figure out what is actually happening and update it
@@ -65,41 +55,11 @@ def GPSample(control_points, step_points, lower, upper, kernelID = 0, numSamples
     control_values[0] = 0.0 # Enforce zero initial strain
 
     gp.fit(control_points.reshape(-1, 1), control_values.reshape(-1, 1))
-    print(gp.sample_y(step_points.reshape(-1, 1), numSamples).shape)
-    seqs = gp.sample_y(step_points.reshape(-1, 1), numSamples).reshape(-1, 1)
-    
-    plt.plot(step_points, seqs, label='pred', marker='s')
-    plt.plot(control_points, control_values, label='control', marker="*")
-#     plt.legend()
     return gp.sample_y(step_points.reshape(-1, 1), numSamples).reshape(-1, 1)
-
-
 ###corelation length?
 
-# In[5]:
-
-tmax = 20 # total time
-N_timesteps = 300 # number of timesteps
-N_cp = 20 # number of control points
-
-d_cp = tmax / N_cp
-d_step = tmax / N_timesteps
-
-control_points = np.arange(0, tmax, d_cp)
-step_points = np.arange(0, tmax, d_step) #times at which we are making getting the values
-
-# Strain bounds
-lower_bound = 0.0 # Should we allow negative values ?
-upper_bound = 2e-2
-
-# theta . # TODO: what is this ?
-amp_theta = np.pi / 12
-
-e_max = 2 * upper_bound
-
-
-# In[ ]:
-
+# TODO: There seems to be multiple mechanisms to create multiple data sets
+# e.g., numRealizations, num_seqs, numPreSeq, do we need all of them ?
 def generate_strain_histories(control_points, step_points, lower_bound, upper_bound, kernelID, numRealizations, num_seqs, numPerSeq):
     N_timesteps = len(step_points)
     e1_seqs = np.zeros([N_timesteps, num_seqs * numPerSeq])
@@ -115,157 +75,70 @@ def generate_strain_histories(control_points, step_points, lower_bound, upper_bo
         np.savetxt(f"e1_seqs_{n}.csv", e3_seqs, delimiter = ",")
     return e1_seqs, e2_seqs, e3_seqs
 
-e1_seqs, e2_seqs, e3_seqs = generate_strain_histories(control_points, step_points, lower_bound, upper_bound, kernelID = 6, numRealizations = 100, num_seqs = 1, numPerSeq = 1)
 
-
-# In[11]:
-
-
-#print(e1_seqs)
-print(e2_seqs.shape)
-# print(theta_seqs.shape)
-
-
-# In[12]:
-
-
-import numpy
-numpy.savetxt("e1_seqs_2.csv", e1_seqs,
-              delimiter = ",")
-
-
-# In[13]:
-
-
-numpy.savetxt("e2_seqs_2.csv", e2_seqs,
-              delimiter = ",")
-
-
-# In[14]:
-
-
-numpy.savetxt("e3_seqs_2.csv", e3_seqs,
-              delimiter = ",")
-
-
-# In[ ]:
-
-
-a = plt.plot(e1_seqs, marker="*")
-
-
-# In[28]:
-
-
-a = plt.plot(e2_seqs)
-
-
-# In[29]:
-
-
-a = plt.plot(theta_seqs)
-
-
-# In[30]:
-
-
-plt.scatter(e1_seqs[:,0],e2_seqs[:,0], marker='.',s=1)
-plt.scatter(e1_seqs[:,1],e2_seqs[:,1], marker='.',s=1)
-plt.scatter(e1_seqs[:,2],e2_seqs[:,2], marker='.',s=1)
-plt.scatter(e1_seqs[:,3],e2_seqs[:,3], marker='.',s=1)
-plt.scatter(e1_seqs[:,4],e2_seqs[:,4], marker='.',s=1)
-plt.scatter(e1_seqs[:,5],e2_seqs[:,5], marker='.',s=1)
-plt.scatter(e1_seqs[:,6],e2_seqs[:,6], marker='.',s=1)
-plt.scatter(e1_seqs[:,7],e2_seqs[:,7], marker='.',s=1)
-plt.scatter(e1_seqs[:,8],e2_seqs[:,8], marker='.',s=1)
-plt.scatter(e1_seqs[:,9],e2_seqs[:,9], marker='.',s=1)
-plt.xlim(-0.03, 0.03) 
-plt.ylim(-0.03, 0.03)
-plt.xlabel('$\epsilon_1$')
-plt.ylabel('$\epsilon_2$')
-plt.axis('equal')
-
-
-# In[10]:
-
-
-e1=np.reshape(e1_seqs,-1,order='F')
-e2=np.reshape(e2_seqs,-1,order='F')
-theta=np.reshape(theta_seqs,-1,order='F')
-
-
-# In[11]:
-
-
-a=plt.plot(e1)
-a=plt.plot(e2)
-a=plt.plot(theta)
-
-
-# In[14]:
-
-
-counts,ybins,xbins,image = plt.hist2d(e1,e2,50, range =[[-e_max, e_max], [-e_max, e_max]],cmap=plt.cm.Reds,vmin=0,vmax=10000)
-plt.colorbar()
-plt.contour(counts,extent=[xbins.min(),xbins.max(),ybins.min(),ybins.max()],levels=[0, 2000, 4000, 6000, 8000, 10000],linewidths=1)
-plt.axis('equal')
-
-
-# In[15]:
-
-
-plt.scatter(e1,e2,marker='.')
-plt.axis('equal')
-
-
-# In[15]:
-
-
-e_11 = (e1-e2)*np.cos(theta)*np.cos(theta)+e2
-e_12 = np.sin(theta)*np.cos(theta)*(e1-e2)
-e_22 = (-e1+e2)*np.cos(theta)*np.cos(theta)+e1
-
-
-# In[16]:
-
-
-a,b,c = plt.hist(e_11,100)
-a,b,c = plt.hist(e_12,100)
-a,b,c = plt.hist(e_22,100)
-
-
-# In[19]:
-
-
-e_1 = 0.5*e_22+0.5*e_11+0.5*np.sqrt(e_11*e_11-2*e_11*e_22+4*e_12*e_12+e_22*e_22)
-e_2 = 0.5*e_22+0.5*e_11-0.5*np.sqrt(e_11*e_11-2*e_11*e_22+4*e_12*e_12+e_22*e_22)
-
-
-# In[20]:
-
-
-counts,ybins,xbins,image = plt.hist2d(e_1,e_2,50, range =[[-e_max, e_max], [-e_max, e_max]],cmap=plt.cm.Reds,vmin=0,vmax=20000)
-plt.colorbar()
-plt.contour(counts,extent=[-xbins.min(),-xbins.max(),-ybins.min(),-ybins.max()],levels=[0, 4000, 8000, 12000, 16000, 20000],linewidths=1)
-plt.axis('equal')
-
-
-# In[21]:
-
-
-plt.hist2d(e1_seqs)
-
-
-# In[ ]:
-
-
-a=np.arange(N_timesteps)
-a.shape
-
-e1_seqs.shape
-
-b=np.array([a,a])
-b.shape
-
-c=np.array([a,b])
-c.shape
+def main():
+    from matplotlib import pyplot as plt
+
+    tmax = 20 # total time
+    N_timesteps = 300 # number of timesteps
+    N_cp = 20 # number of control points
+
+    control_points = np.linspace(0, tmax, N_cp)
+    step_points = np.linspace(0, tmax, N_timesteps) #times at which we are making getting the values
+
+    # Strain bounds
+    min_strain = 0.0 # TODO: Should we allow negative values ? Bias in positive strain eigenvalues
+    max_strain = 2e-2
+
+    kernelID = 6
+    numRealizations = 1
+    num_seqs = 1
+    numPerSeq = 1
+
+    # Generate random strain histories
+    e1_seqs, e2_seqs, e3_seqs = generate_strain_histories(control_points, step_points,
+                                                          min_strain, max_strain,
+                                                          kernelID,
+                                                          numRealizations, num_seqs, numPerSeq)
+
+    # Plots
+    lo = 2 * min_strain
+    hi = 2* max_strain
+
+    # Plot generated strain history
+    plt.figure(1)
+    plt.plot(step_points, e1_seqs, label='e1')
+    plt.plot(step_points, e2_seqs, label='e2')
+    plt.plot(step_points, e3_seqs, label='e3')
+    plt.xlabel('Time')
+    plt.ylabel('Strain')
+    plt.legend()
+    plt.show()
+
+    # Plot 2D strain path
+    plt.figure(2)
+    plt.plot(e1_seqs[:,0],e2_seqs[:,0],marker='>')
+    plt.xlim(lo, hi)
+    plt.ylim(lo, hi)
+    plt.xlabel('e1')
+    plt.ylabel('e2')
+    plt.axis('equal')
+    plt.show()
+
+    # Plot 2D histogram of # TODO: what si this ?
+    plt.figure(3)
+    counts,ybins,xbins,image = plt.hist2d(e1_seqs[:,0],e2_seqs[:,0],50, range =[[lo, hi], [lo, hi]],cmap=plt.cm.Reds,vmin=0,vmax=10000)
+    plt.colorbar()
+    plt.contour(counts,extent=[xbins.min(),xbins.max(),ybins.min(),ybins.max()],levels=[0, 2000, 4000, 6000, 8000, 10000],linewidths=1)
+    plt.xlabel('e1')
+    plt.ylabel('e2')
+    plt.axis('equal')
+    plt.show()
+
+    # TODO: I deleted the code below that made more histograms and was dependent
+    # on theta, which was not well-defined in the Jupyter notebook.
+    # See if we need it, it is in the git history
+
+
+if __name__ == "__main__":
+    main()
