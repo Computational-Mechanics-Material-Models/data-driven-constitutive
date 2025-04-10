@@ -585,6 +585,8 @@ class GRUModel(nn.Module):
         return x
 
 # Define Optuna Objective Function
+# TODO: This function looks a lot like the one for the LSTM and we might be
+# able to generalize it if we really wanted to but that might be too much effort for now
 def objective(trial):
     # Sample hyperparameters
     batch_size = trial.suggest_int("batch_size", 16, 64, step=8)

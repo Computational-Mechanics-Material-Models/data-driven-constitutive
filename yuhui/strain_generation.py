@@ -1,8 +1,6 @@
 #!/usr/bin/env python
-# coding: utf-8
 
-# In[3]:
-
+# Script to generate random strain histories for input to RVE simulations
 
 import numpy as np
 import sys
@@ -20,10 +18,8 @@ import os, glob #for clearVtkOutputDirectory
 
 from matplotlib import pyplot as plt
 
-
-# In[4]:
-
-
+# TODO: The docstring describes arguments that are not in the function signature
+# Figure out what is actually happening and update it
 def GPSample(control_points, step_points, lower, upper, seed = 1, kernelID = 0, numSamples = 1):
     '''Gaussian Process supperle generator
      
@@ -32,7 +28,7 @@ def GPSample(control_points, step_points, lower, upper, seed = 1, kernelID = 0, 
         tchar (float): characteristic time of the GP
         upper (float): the upperlitude of the proces. 
         seed (int): random seed
-        kernelID (int): specify the kernel to use in the GP (range from 0 to 4)
+        kernelID (int): specify the kernel to use in the GP (range from 0 to 8)
         numSamples (int): specifies the number of sequences in the output
         cont_level (int): continuity level at origin. If it is 0 (for C0), the 
             value of the GP is close to zero at the origin. If cont_level is 1 
@@ -44,68 +40,61 @@ def GPSample(control_points, step_points, lower, upper, seed = 1, kernelID = 0, 
             represents the values of a gaussian process.
     
     '''
+    # TODO: Make characteristic time variable?
+    # TODO: Pass kwargs for different kernels insted of hardcoding
     ndtchar = 1
-    kernels = [upper**2 * RBF(length_scale=ndtchar, length_scale_bounds=(1e-1, 10.0)),
-               upper**2 * RationalQuadratic(length_scale=ndtchar, alpha=0.1),
-               upper**2 * ExpSineSquared(length_scale=ndtchar, periodicity=3.0,
-                                    length_scale_bounds=(0.1, 10.0),
-                                    periodicity_bounds=(1.0, 10.0)),
-               ConstantKernel(upper**2, (0.01, 10.0))
-                   * (DotProduct(sigma_0=1.0, sigma_0_bounds=(0.1, 10.0)) ** 2),
-               upper**2 * Matern(length_scale=ndtchar, length_scale_bounds=(1e-1, 10.0),
-                            nu=1.5),
-               ConstantKernel(constant_value=upper**2,constant_value_bounds=(1e-3, 1e3)) \
-                * RBF(length_scale=1, length_scale_bounds=(1e-3, 1e3)),
-               Exponentiation( upper**2 * RBF(length_scale=1, length_scale_bounds=(1e-10, 1e10)), exponent=2),
-               Exponentiation( upper**2 * RationalQuadratic(length_scale=1, alpha=0.1), exponent=2)
-            ]
-    ker = kernels[kernelID]
+    match kernelID:
+        case 0: # Radial basis function kernel
+            ker = upper**2 * RBF(length_scale=ndtchar, length_scale_bounds=(1e-1, 10.0)) # TODO: why do we multiply by upper ?!?!?!
+        case 1: # Rational Quadratic kernel
+            ker = upper**2 * RationalQuadratic(length_scale=ndtchar, alpha=0.1)
+        case 2: # Exp-Sine-Squared (aka Periodic kernel)
+            ker = upper**2 * ExpSineSquared(length_scale=ndtchar, periodicity=3.0, length_scale_bounds=(0.1, 10.0), periodicity_bounds=(1.0, 10.0))
+        case 4: # TODO: some kind of DIY kernel
+            ker = ConstantKernel(upper**2, (0.01, 10.0)) * (DotProduct(sigma_0=1.0, sigma_0_bounds=(0.1, 10.0)) ** 2)
+        case 5: # Matern kernel
+            ker = upper**2 * Matern(length_scale=ndtchar, length_scale_bounds=(1e-1, 10.0), nu=1.5)
+        case 6: # TODO: some kind of DIY kernel
+            ker = ConstantKernel(constant_value=upper**2,constant_value_bounds=(1e-3, 1e3)) * RBF(length_scale=1, length_scale_bounds=(1e-3, 1e3))
+        case 7: # Squared RBF Kernel
+            ker = Exponentiation( upper**2 * RBF(length_scale=1, length_scale_bounds=(1e-10, 1e10)), exponent=2)
+        case 8: # Squared Rational Quadratic kernel
+            ker = Exponentiation( upper**2 * RationalQuadratic(length_scale=1, alpha=0.1), exponent=2)
+
     gp = GaussianProcessRegressor(kernel=ker, alpha=1e-10,optimizer=None,n_restarts_optimizer=10)
-    len_cp = len(control_points)
-    control_values = np.random.uniform(lower, upper, len_cp)
-    control_values[0] = 0
-    #print(control_points.reshape(-1, 1))
-    #print(control_values.reshape(-1, 1))
-    
-    #fitting the Gaussian process so that it passes through the origin
+    control_values = np.random.uniform(lower, upper, len(control_points))
+    control_values[0] = 0.0 # Enforce zero initial strain
+
     gp.fit(control_points.reshape(-1, 1), control_values.reshape(-1, 1))
     print(gp.sample_y(step_points.reshape(-1, 1), numSamples).shape)
     seqs = gp.sample_y(step_points.reshape(-1, 1), numSamples).reshape(-1, 1)
     
-    a = plt.plot(step_points, seqs, label='pred', marker='s')
-    a = plt.plot(control_points, control_values, label='control', marker="*")
+    plt.plot(step_points, seqs, label='pred', marker='s')
+    plt.plot(control_points, control_values, label='control', marker="*")
 #     plt.legend()
     return gp.sample_y(step_points.reshape(-1, 1), numSamples).reshape(-1, 1)
 
 
 ###corelation length?
 
-
-# In[ ]:
-
-
-
-
-
 # In[5]:
-
 
 tmax = 20 # total time
 N_timesteps = 300 # number of timesteps
 N_cp = 20 # number of control points
 
 d_cp = tmax / N_cp
-control_points = np.arange(0, tmax, d_cp)
-print(control_points)
 d_step = tmax / N_timesteps
+
+control_points = np.arange(0, tmax, d_cp)
 step_points = np.arange(0, tmax, d_step) #times at which we are making getting the values
 
-# epsilon
-lower_bound =0
+# Strain bounds
+lower_bound = 0.0 # Should we allow negative values ?
 upper_bound = 2e-2
 
-# theta
-amp_theta = 3.141592/12
+# theta . # TODO: what is this ?
+amp_theta = np.pi / 12
 
 e_max = 2 * upper_bound
 
