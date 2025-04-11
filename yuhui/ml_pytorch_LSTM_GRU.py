@@ -328,25 +328,28 @@ def train_model(model, train_loader, optimizer, epochs):
     return total_loss_epoch # Return loss at last training epoch
 
 # Define Optuna Objective Function
-def objective(trial):
+def objective(trial, modelClass, model_input_size, model_hyperparams, training_hyperparams, X_train, y_train):
+    # model_hyperparams = list of {dic of trial.suggest_type() arguments} for batch_size and learning_rate
+    # model_hyperparams =  list of ('type', {dic of trial.suggest_type() arguments}) for Network parameters
+    # Assumes modelClass constructor is of the form modelClass(model_input_size, hyperparameter1, hyperparameter2...)
+
     # Sample hyperparameters
-    batch_size = trial.suggest_int("batch_size", 16,64, step=8)
-    lstm_units_1 = trial.suggest_int("lstm_units_1", 32, 128, step=16)
-    lstm_units_2 = trial.suggest_int("lstm_units_2", 16, 64, step=16)
-    dropout_1 = trial.suggest_float("dropout_1", 0.1, 0.5, step=0.1)
-    dropout_2 = trial.suggest_float("dropout_2", 0.1, 0.5, step=0.1)
-    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-2, log=True)
+    batch_size = trial.suggest_int(**training_hyperparams[0])
+    learning_rate = trial.suggest_float(**training_hyperparams[1])
+
+    model_args = [model_input_size]
+    for (datatype, hyperparam) in model_hyperparams:
+        if (datatype == 'int'):
+            model_args += [trial.suggest_int(*hyperparam)]
+        elif (datatype == 'float'):
+            model_args += [trial.suggest_float(*hyperparam)]
+    # Initialize model
+    model = modelClass(*tuple(model_args)).to(device)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     # Create DataLoader (Fix 1: drop_last=True to ensure equal batch sizes)
     train_dataset = TensorDataset(X_train, y_train)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-
-    # Initialize model
-    model = LSTMModel(input_dim=6, hidden_dim1=lstm_units_1, hidden_dim2=lstm_units_2,
-                      dropout1=dropout_1, dropout2=dropout_2).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    
     # criterion = nn.MSELoss()  # Mean Squared Error for regression task
 
     # # Debugging: Check first batch shapes
@@ -361,7 +364,19 @@ def objective(trial):
 
 # Run Optuna Optimization
 study = optuna.create_study(direction="minimize")  # Minimize the loss
-study.optimize(objective, n_trials=10)  # Reduce trials for debugging
+# Training hyperparameters
+training_hyperparams = [
+    {'name':"batch_size", 'low':16, 'high':64, 'step':8},
+    {'name':"learning_rate", 'low':1e-5, 'high':1e-2, 'log':True}
+    ]
+model_hyperparams = [
+    ('int', {'name':"lstm_units_1", 'low':32, 'high':128, 'step':16}),
+    ('int', {'name':"lstm_units_2", 'low':16, 'high':64, 'step':16}),
+    ('float', {'name':"dropout1", 'low':0.1, 'high':0.5, 'step':0.1}),
+    ('float', {'name':"dropout2", 'low':0.1, 'high':0.5, 'step':0.1})
+    ]
+
+study.optimize(lambda trial: objective(trial, LSTMModel, 6, model_hyperparams, training_hyperparams, X_train, y_train), n_trials=10)  # Reduce trials for debugging
 
 # Print best hyperparameters
 print("Best hyperparameters:", study.best_params)
@@ -570,36 +585,20 @@ class GRUModel(nn.Module):
         print(f"Output shape from GRU: {x.shape}")  # Debugging
         return x
 
-# Define Optuna Objective Function
-# TODO: This function looks a lot like the one for the LSTM and we might be
-# able to generalize it if we really wanted to but that might be too much effort for now
-# Optuna docs explain how to do it here: https://optuna.readthedocs.io/en/stable/faq.html#how-to-define-objective-functions-that-have-own-arguments
-def objective(trial):
-    # Sample hyperparameters
-    batch_size = trial.suggest_int("batch_size", 16, 64, step=8)
-    gru_units_1 = trial.suggest_int("gru_units_1", 32, 128, step=16)
-    gru_units_2 = trial.suggest_int("gru_units_2", 16, 64, step=16)
-    dropout_1 = trial.suggest_float("dropout_1", 0.1, 0.5, step=0.1)
-    dropout_2 = trial.suggest_float("dropout_2", 0.1, 0.5, step=0.1)
-    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-2, log=True)
-
-    # Create DataLoader
-    train_dataset = TensorDataset(X_train, y_train)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-
-    # Initialize GRU model
-    model = GRUModel(input_dim=6, hidden_dim1=gru_units_1, hidden_dim2=gru_units_2,
-                     dropout1=dropout_1, dropout2=dropout_2).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    # Training loop
-    epochs = 300
-    return train_model(model, train_loader, optimizer, epochs) # Return final loss for Optuna to minimize
-
 # Run Optuna Optimization
 study = optuna.create_study(direction="minimize")  # Minimize the loss
-study.optimize(objective, n_trials=10)  # Reduce trials for debugging
-
+# Training hyperparameters
+training_hyperparams = [
+    {'name':"batch_size", 'low':16, 'high':64, 'step':8},
+    {'name':"learning_rate", 'low':1e-5, 'high':1e-2, 'log':True}
+    ]
+model_hyperparams = [
+    ('int', {'name':"gru_units_1", 'low':32, 'high':128, 'step':16}),
+    ('int', {'name':"gru_units_2", 'low':16, 'high':64, 'step':16}),
+    ('float', {'name':"dropout1", 'low':0.1, 'high':0.5, 'step':0.1}),
+    ('float', {'name':"dropout2", 'low':0.1, 'high':0.5, 'step':0.1})
+    ]
+study.optimize(lambda trial: objective(trial, GRUModel, 6, model_hyperparams, training_hyperparams, X_train, y_train), n_trials=10)  # Reduce trials for debugging
 # Print best hyperparameters
 print("Best hyperparameters:", study.best_params)
 
