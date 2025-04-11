@@ -308,6 +308,25 @@ class LSTMModel(nn.Module):
         print(f"Output shape from LSTM: {x.shape}")  # Debugging
         return x
 
+
+def train_model(model, train_loader, optimizer, epochs):
+    model.train()
+    for epoch in range(epochs):
+        total_loss_epoch = 0.0
+        for X_batch, y_batch in train_loader:
+            optimizer.zero_grad()
+            y_pred = model(X_batch)
+
+            # Get the loss function dynamically for this batch
+            loss_fn = make_custom_loss_batch(model, X_batch)
+            loss = loss_fn(y_pred, y_batch)
+
+            loss.backward()
+            optimizer.step()
+            total_loss_epoch += loss.item()
+        print(f'Epoch {epoch + 1}/{epochs} - Total Loss: {total_loss_epoch}')
+    return total_loss_epoch # Return loss at last training epoch
+
 # Define Optuna Objective Function
 def objective(trial):
     # Sample hyperparameters
@@ -338,22 +357,7 @@ def objective(trial):
 
     # Training loop
     epochs = 300
-    for epoch in range(epochs):
-        total_loss_epoch = 0.0
-        for X_batch, y_batch in train_loader:
-            optimizer.zero_grad()
-            y_pred = model(X_batch)
-            # loss = criterion(y_pred, y_batch)
-            # Get the loss function dynamically for this batch
-            loss_fn = make_custom_loss_batch(model, X_batch)  
-            loss = loss_fn(y_pred, y_batch)  
-            
-            loss.backward()
-            optimizer.step()
-            total_loss_epoch += loss.item()
-        print(f'Epoch {epoch + 1}, Total Loss: {total_loss_epoch}')
-    
-    return total_loss_epoch  # Return final loss for Optuna to minimize
+    return train_model(model, train_loader, optimizer, epochs) # Return final loss for Optuna to minimize
 
 # Run Optuna Optimization
 study = optuna.create_study(direction="minimize")  # Minimize the loss
@@ -367,26 +371,8 @@ print("Best hyperparameters:", study.best_params)
 
 # In[ ]:
 
-        
-def train_model(model, train_loader, optimizer, epochs):
-    model.train()
-    for epoch in range(epochs):
-        total_loss_epoch = 0.0
-        for X_batch, y_batch in train_loader:
-            optimizer.zero_grad()
-            y_pred = model(X_batch)
 
-            # Get the loss function dynamically for this batch
-            loss_fn = make_custom_loss_batch(model, X_batch)  
-            loss = loss_fn(y_pred, y_batch)  
-
-            loss.backward()
-            optimizer.step()
-            total_loss_epoch += loss.item()
-        
-        print(f'Epoch {epoch + 1}/{epochs} - Total Loss: {total_loss_epoch}')
-
-
+# TODO: is this training model with best hyperparameters obtaiend from Optuna?
 
 
 # Hyperparameters
@@ -587,6 +573,7 @@ class GRUModel(nn.Module):
 # Define Optuna Objective Function
 # TODO: This function looks a lot like the one for the LSTM and we might be
 # able to generalize it if we really wanted to but that might be too much effort for now
+# Optuna docs explain how to do it here: https://optuna.readthedocs.io/en/stable/faq.html#how-to-define-objective-functions-that-have-own-arguments
 def objective(trial):
     # Sample hyperparameters
     batch_size = trial.suggest_int("batch_size", 16, 64, step=8)
@@ -607,21 +594,7 @@ def objective(trial):
 
     # Training loop
     epochs = 300
-    for epoch in range(epochs):
-        total_loss_epoch = 0.0
-        for X_batch, y_batch in train_loader:
-            optimizer.zero_grad()
-            y_pred = model(X_batch)
-            # Get the loss function dynamically for this batch
-            loss_fn = make_custom_loss_batch(model, X_batch)  
-            loss = loss_fn(y_pred, y_batch)  
-            
-            loss.backward()
-            optimizer.step()
-            total_loss_epoch += loss.item()
-        print(f'Epoch {epoch + 1}, Total Loss: {total_loss_epoch}')
-    
-    return total_loss_epoch  # Return final loss for Optuna to minimize
+    return train_model(model, train_loader, optimizer, epochs) # Return final loss for Optuna to minimize
 
 # Run Optuna Optimization
 study = optuna.create_study(direction="minimize")  # Minimize the loss
