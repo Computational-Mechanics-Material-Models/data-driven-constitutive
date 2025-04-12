@@ -15,68 +15,8 @@ import matplotlib.pyplot as plt
 import random
 
 
-# Check available GPUs
-physical_devices = torch.cuda.device_count()
-print(f"Available GPUs: {physical_devices}")
-
-
-# # Check for GPU
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# print(f"Using device: {device}")
-
-# Choose the desired GPU index
-gpu_id = 4
-if gpu_id < physical_devices:
-    device = torch.device(f"cuda:{gpu_id}")
-    torch.cuda.set_device(device)  # Set the current device
-    print(f"Binding to GPU {gpu_id}: {torch.cuda.get_device_name(gpu_id)}")
-else:
-    device = torch.device("cpu")
-    print(f"GPU {gpu_id} not available, using CPU instead.")
-# Example: Move a tensor to the selected GPU
-tensor_example = torch.tensor([1.0, 2.0, 3.0]).to(device)
-print(tensor_example.device)  # Should print "cuda:4" if GPU 4 is available
-
-
-# Read in and process file containing loading history for multiple tests
-# step, strain11, strain22, strain33, strain12, strain13, strain23, stress11, stress22, stress33, stress12, stress13, stress23, index, size, material
-# 1000 steps = [0 ; 999] vertically stacked for a given test, one step per row
-# 100 blocks (index = [0 ; 99]) of 1000 steps vertically stacked. What is the index representing ? One index per test ?
-# material = 0 for all tests
-# size = 30 for all tests
-# TODO: I have no idea what units stress, strain, size are!
-# TODO: Is there is any normalization?
-# TODO: Pandas uses its own `index`, so using a variable named `index` might be confusing. Consider changing name
-file_paths = ["averaged_size_30_strain22.csv",]
-df_list = [pd.read_csv(file) for file in file_paths]
-
-# Make index unique for all files in in case multiple files with similar format
-# i.e., index start at zero are in `file_paths`
-index_offset = 0
-for df in df_list:
-    df['index'] = df['index'] + index_offset
-    index_offset += len(df['index'].unique())
-
-# Combine clean and export consolidated data in files
-df_combined = pd.concat(df_list, ignore_index=False)
-df_combined.dropna(inplace=True)
-df_combined = df_combined.astype(np.float64) # TODO: float 32 precise enough for ML applications?
-print(df_combined.head(1001)) # TODO: Do not use hardcoded value !!!
-df_combined.to_csv("combined_dataset.csv", index=False)
-
-
-# TODO: Ask Yuhui: files not provided
-# TODO: The `strain_generation` script does not create files in .txt format or with angle1 name
-# TODO: No idea how these files should be obtained...
-
-angle1 = np.genfromtxt("angle1.txt", delimiter=',')
-angle2 = np.genfromtxt("angle2.txt", delimiter=',')
-angle3 = np.genfromtxt("angle3.txt", delimiter=',')
-
-
-# In[ ]:
-
-# TODO consider moving function definitions at start of file
+# TODO: Should this be moved to the strain generation?
+# It makes it really clunky to pass it to the function and do the rotations there!
 def generateRmatrix(angle1, angle2, angle3):
     R1 = np.array([[np.cos(angle1), -np.sin(angle1), 0],[np.sin(angle1), np.cos(angle1), 0],[0, 0, 1]])
     print(R1.shape)
@@ -85,12 +25,7 @@ def generateRmatrix(angle1, angle2, angle3):
     R = np.matmul(np.matmul(R1, R2), R3)
     return R
 
-R=generateRmatrix(angle1[0], angle2[0], angle3[0])
-print(R)
 
-
-# In[ ]:
-    
 # TODO JBC: Looks like what was in this Jupyter block and the next one could be
 # manually chosen by the user to use either / or techniques to extract X and y
 # from the data. To keep them and have them work in a regular script,
@@ -125,8 +60,7 @@ def extract_input_and_output(df_combined,
                 count += 1
     return X, y
 
-X, y = extract_input_and_output(df_combined)
-print(X.shape, y.shape)
+
 
 # TODO JBC: Looks like what was in this Jupyter block and the previous one could be
 # manually chosen by the user to use either / or techniques to extract X and y
@@ -210,18 +144,9 @@ def extract_and_normalize_input_and_output(df_combined,
                 count += 1
     return X, y
 
-X, y = extract_and_normalize_input_and_output(df_combined)
-X.shape, y.shape
-
-
-# In[ ]:
-
-
-import torch
-import torch.nn.functional as F
 
 # Define custom loss function in PyTorch
-def make_custom_loss_batch(model, X_batch):
+def make_custom_loss_batch(model, X_batch, R):
     def custom_loss(y_pred, y_true):
         # Convert R to a PyTorch tensor
         R_tensor = torch.tensor(R, dtype=torch.float32, device=y_pred.device) # TODO: DO NOT USE GLOBALS LIKE `R` !
@@ -268,7 +193,7 @@ def make_custom_loss_batch(model, X_batch):
         # Compute stress dot product change
         stress_dot_change = torch.sum(y_pred * delta_sigma, dim=[1, 2])
         t = 1.0
-        relu_term = F.relu(-t * stress_dot_change)
+        relu_term = nn.functional.relu(-t * stress_dot_change)
         term3 = torch.mean(relu_term)
 
         # Print debug information
@@ -278,15 +203,7 @@ def make_custom_loss_batch(model, X_batch):
 
     return custom_loss
 
-# In[ ]:
 
-
-# Convert dataset to PyTorch tensors
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
-X_train = torch.tensor(X_train, dtype=torch.float32).to(device)
-y_train = torch.tensor(y_train, dtype=torch.float32).to(device)
-X_test = torch.tensor(X_test, dtype=torch.float32).to(device)
-y_test = torch.tensor(y_test, dtype=torch.float32).to(device)
 
 # Define LSTM Model
 class LSTMModel(nn.Module):
@@ -309,7 +226,28 @@ class LSTMModel(nn.Module):
         return x
 
 
-def train_model(model, train_loader, optimizer, epochs):
+# Define GRU Model
+class GRUModel(nn.Module):
+    def __init__(self, input_dim, hidden_dim1, hidden_dim2, dropout1, dropout2):
+        super(GRUModel, self).__init__()
+        self.gru1 = nn.GRU(input_dim, hidden_dim1, batch_first=True)
+        self.dropout1 = nn.Dropout(dropout1)
+        self.gru2 = nn.GRU(hidden_dim1, hidden_dim2, batch_first=True)
+        self.dropout2 = nn.Dropout(dropout2)
+        self.fc = nn.Linear(hidden_dim2, 6)  # Output layer for regression
+
+    def forward(self, x):
+        print(f"Input shape to GRU: {x.shape}")  # Debugging
+        x, _ = self.gru1(x)
+        x = self.dropout1(x)
+        x, _ = self.gru2(x)
+        x = self.dropout2(x)
+        x = self.fc(x)
+        print(f"Output shape from GRU: {x.shape}")  # Debugging
+        return x
+
+
+def train_model(model, train_loader, optimizer, epochs, R):
     model.train()
     for epoch in range(epochs):
         total_loss_epoch = 0.0
@@ -318,7 +256,7 @@ def train_model(model, train_loader, optimizer, epochs):
             y_pred = model(X_batch)
 
             # Get the loss function dynamically for this batch
-            loss_fn = make_custom_loss_batch(model, X_batch)
+            loss_fn = make_custom_loss_batch(model, X_batch, R)
             loss = loss_fn(y_pred, y_batch)
 
             loss.backward()
@@ -328,7 +266,7 @@ def train_model(model, train_loader, optimizer, epochs):
     return total_loss_epoch # Return loss at last training epoch
 
 # Define Optuna Objective Function
-def objective(trial, modelClass, model_input_size, model_hyperparams, training_hyperparams, X_train, y_train):
+def objective(trial, modelClass, model_input_size, model_hyperparams, training_hyperparams, X_train, y_train, device, R):
     # model_hyperparams = list of {dic of trial.suggest_type() arguments} for batch_size and learning_rate
     # model_hyperparams =  list of ('type', {dic of trial.suggest_type() arguments}) for Network parameters
     # Assumes modelClass constructor is of the form modelClass(model_input_size, hyperparameter1, hyperparameter2...)
@@ -360,345 +298,393 @@ def objective(trial, modelClass, model_input_size, model_hyperparams, training_h
 
     # Training loop
     epochs = 300
-    return train_model(model, train_loader, optimizer, epochs) # Return final loss for Optuna to minimize
-
-# Run Optuna Optimization
-study = optuna.create_study(direction="minimize")  # Minimize the loss
-# Training hyperparameters
-training_hyperparams = [
-    {'name':"batch_size", 'low':16, 'high':64, 'step':8},
-    {'name':"learning_rate", 'low':1e-5, 'high':1e-2, 'log':True}
-    ]
-model_hyperparams = [
-    ('int', {'name':"lstm_units_1", 'low':32, 'high':128, 'step':16}),
-    ('int', {'name':"lstm_units_2", 'low':16, 'high':64, 'step':16}),
-    ('float', {'name':"dropout1", 'low':0.1, 'high':0.5, 'step':0.1}),
-    ('float', {'name':"dropout2", 'low':0.1, 'high':0.5, 'step':0.1})
-    ]
-
-study.optimize(lambda trial: objective(trial, LSTMModel, 6, model_hyperparams, training_hyperparams, X_train, y_train), n_trials=10)  # Reduce trials for debugging
-
-# Print best hyperparameters
-print("Best hyperparameters:", study.best_params)
+    return train_model(model, train_loader, optimizer, epochs, R) # Return final loss for Optuna to minimize
 
 
 
 
-# In[ ]:
 
 
-# TODO: is this training model with best hyperparameters obtaiend from Optuna?
+def main():
+    # Check available GPUs
+    physical_devices = torch.cuda.device_count()
+    print(f"Available GPUs: {physical_devices}")
+
+    # # Check for GPU
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # print(f"Using device: {device}")
+
+    # Choose the desired GPU index
+    gpu_id = 4
+    if gpu_id < physical_devices:
+        device = torch.device(f"cuda:{gpu_id}")
+        torch.cuda.set_device(device)  # Set the current device
+        print(f"Binding to GPU {gpu_id}: {torch.cuda.get_device_name(gpu_id)}")
+    else:
+        device = torch.device("cpu")
+        print(f"GPU {gpu_id} not available, using CPU instead.")
+    # Example: Move a tensor to the selected GPU
+    tensor_example = torch.tensor([1.0, 2.0, 3.0]).to(device)
+    print(tensor_example.device)  # Should print "cuda:4" if GPU 4 is available
 
 
-# Hyperparameters
-batch_size = 56
-lstm_units_1 = 80
-lstm_units_2 = 64
-dropout_1 = 0.1
-dropout_2 = 0.3
-learning_rate = 0.005
-epochs = 1000  # Adjust for testing
+    # Read in and process file containing loading history for multiple tests
+    # step, strain11, strain22, strain33, strain12, strain13, strain23, stress11, stress22, stress33, stress12, stress13, stress23, index, size, material
+    # 1000 steps = [0 ; 999] vertically stacked for a given test, one step per row
+    # 100 blocks (index = [0 ; 99]) of 1000 steps vertically stacked. What is the index representing ? One index per test ?
+    # material = 0 for all tests
+    # size = 30 for all tests
+    # TODO: I have no idea what units stress, strain, size are!
+    # TODO: Is there is any normalization?
+    # TODO: Pandas uses its own `index`, so using a variable named `index` might be confusing. Consider changing name
+    file_paths = ["averaged_size_30_strain22.csv",]
+    df_list = [pd.read_csv(file) for file in file_paths]
 
-# Create DataLoader
-train_dataset = TensorDataset(X_train, y_train)
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    # Make index unique for all files in in case multiple files with similar format
+    # i.e., index start at zero are in `file_paths`
+    index_offset = 0
+    for df in df_list:
+        df['index'] = df['index'] + index_offset
+        index_offset += len(df['index'].unique())
 
-# Initialize Model, Optimizer, Loss Function
-model = LSTMModel(input_dim=6, hidden_dim1=lstm_units_1, hidden_dim2=lstm_units_2,
-                  dropout1=dropout_1, dropout2=dropout_2).to(device)
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-
-# Train Model
-train_model(model, train_loader, optimizer, epochs)
-
-
-# In[ ]:
-
-
-# import torch
-# import matplotlib.pyplot as plt
-# import numpy as np
-# import os
-# from sklearn.metrics import r2_score
-
-# # Ensure model is in evaluation mode
-# model.eval()
-
-# # Create a directory to save plots
-# save_dir = 'test_set_plots_3'
-# os.makedirs(save_dir, exist_ok=True)
-
-# # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
+    # Combine clean and export consolidated data in files
+    df_combined = pd.concat(df_list, ignore_index=False)
+    df_combined.dropna(inplace=True)
+    df_combined = df_combined.astype(np.float64) # TODO: float 32 precise enough for ML applications?
+    print(df_combined.head(1001)) # TODO: Do not use hardcoded value !!!
+    df_combined.to_csv("combined_dataset.csv", index=False)
 
 
-# # Ensure X_test is a PyTorch tensor and move to the correct device
-# X_test = X_test.to(next(model.parameters()).device)
+    # TODO: Ask Yuhui: files not provided
+    # TODO: The `strain_generation` script does not create files in .txt format or with angle1 name
+    # TODO: No idea how these files should be obtained...
 
-# # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
-
-
-# # Make predictions for the test set (disable gradients)
-# with torch.no_grad():
-#     predictions = model(X_test)  # Forward pass
-
-# # Convert predictions and tensors back to NumPy
-# predictions = predictions.cpu().numpy()
-# X_test_np = X_test.cpu().numpy()
-# y_test_np = y_test.cpu().numpy()
-
-# # Number of test samples
-# num_tests = X_test.shape[0]
-
-# # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
-
-# # Loop over each test sample to plot
-# for i in range(num_tests):
-#     # Extract strain_11 (component 0 of strain tensor)
-#     strain_11 = X_test_np[i, :, 1]  # Strain in the first direction (epsilon_11)
-#     # print(strain_11)
+    angle1 = np.genfromtxt("angle1.txt", delimiter=',')
+    angle2 = np.genfromtxt("angle2.txt", delimiter=',')
+    angle3 = np.genfromtxt("angle3.txt", delimiter=',')
     
-#     # Extract true stress_11 (component 0 of stress tensor)
-#     true_stress_11 = y_test_np[i, :, 1]  # True stress in the first direction (sigma_11)
-#     # Extract predicted stress_11 (component 0 of predicted stress tensor)
-#     predicted_stress_11 = predictions[i, :, 1]  # Predicted stress in the first direction (sigma_11)
+    R=generateRmatrix(angle1[0], angle2[0], angle3[0])
+    print(R)
 
-#     # Compute R² score
-#     r2 = r2_score(true_stress_11, predicted_stress_11)
-
-#     # Plot true stress_11 and predicted stress_11 against strain_11
-#     plt.figure(figsize=(8, 6))
-#     plt.plot(strain_11, true_stress_11, label='True Stress_11', color='blue', marker='o')
-#     plt.plot(strain_11, predicted_stress_11, label='Predicted Stress_11', color='red', linestyle='--')
-
-#     # Labeling the plot
-#     plt.title(f'Test Sample {i+1}: Stress_11 vs Strain_11 (R2 = {r2:.4f})')
-#     plt.xlabel('Strain_11 (epsilon_11)')
-#     plt.ylabel('Stress_11 (sigma_11)')
-#     plt.legend()
-
-#     # Show plot
-#     plt.show()
-
-#     # Save plot as an image file
-#     plt.savefig(f'{save_dir}/plot_example_{i}.png')
-
-#     # Close the figure to free memory
-#     plt.close()
+    # TODO: figure out which one I am supposed to use and delete the other
+    X, y = extract_input_and_output(df_combined)
+    print(X.shape, y.shape)
+    X, y = extract_and_normalize_input_and_output(df_combined)
+    X.shape, y.shape
 
 
-# In[ ]:
+    # Convert dataset to PyTorch tensors
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
+    X_train = torch.tensor(X_train, dtype=torch.float32).to(device)
+    y_train = torch.tensor(y_train, dtype=torch.float32).to(device)
+    X_test = torch.tensor(X_test, dtype=torch.float32).to(device)
+    y_test = torch.tensor(y_test, dtype=torch.float32).to(device)
+
+    # ---------- #
+    # LSTM model #
+    # ---------- #
+
+    # Run Optuna Optimization
+    study = optuna.create_study(direction="minimize")  # Minimize the loss
+    # Training hyperparameters
+    training_hyperparams = [
+        {'name':"batch_size", 'low':16, 'high':64, 'step':8},
+        {'name':"learning_rate", 'low':1e-5, 'high':1e-2, 'log':True}
+        ]
+    model_hyperparams = [
+        ('int', {'name':"lstm_units_1", 'low':32, 'high':128, 'step':16}),
+        ('int', {'name':"lstm_units_2", 'low':16, 'high':64, 'step':16}),
+        ('float', {'name':"dropout1", 'low':0.1, 'high':0.5, 'step':0.1}),
+        ('float', {'name':"dropout2", 'low':0.1, 'high':0.5, 'step':0.1})
+        ]
+
+    study.optimize(lambda trial: objective(trial, LSTMModel, 6, model_hyperparams, training_hyperparams, X_train, y_train, device), n_trials=10)  # Reduce trials for debugging
+    # Print best hyperparameters
+    print("Best hyperparameters:", study.best_params)
 
 
-# import torch
-# import matplotlib.pyplot as plt
-# import numpy as np
-# import os
-# from sklearn.metrics import r2_score
 
-# # Ensure model is in evaluation mode
-# model.eval()
+    # Hyperparameters
+    batch_size = 56
+    lstm_units_1 = 80
+    lstm_units_2 = 64
+    dropout_1 = 0.1
+    dropout_2 = 0.3
+    learning_rate = 0.005
+    epochs = 1000  # Adjust for testing
 
-# # Create a directory to save plots
-# save_dir = 'test_set_plots_3'
-# os.makedirs(save_dir, exist_ok=True)
+    # Create DataLoader
+    train_dataset = TensorDataset(X_train, y_train)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
-# # Ensure X_test is a PyTorch tensor and move to the correct device
-# X_train = X_train.to(next(model.parameters()).device)
-# print(X_train.shape)
-# # Make predictions for the test set (disable gradients)
-# with torch.no_grad():
-#     predictions = model(X_train)  # Forward pass
+    # Initialize Model, Optimizer, Loss Function
+    model = LSTMModel(input_dim=6, hidden_dim1=lstm_units_1, hidden_dim2=lstm_units_2,
+                      dropout1=dropout_1, dropout2=dropout_2).to(device)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-# # Convert predictions and tensors back to NumPy
-# predictions = predictions.cpu().numpy()
-# X_train_np = X_train.cpu().numpy()
-# y_train_np = y_train.cpu().numpy()
-
-# # Number of test samples
-# num_train = X_train.shape[0]
-# # print(num_tests, X_train)
-# # Loop over each test sample to plot  
-# for i in range(num_train):
-#     # Extract strain_11 (component 0 of strain tensor)
-#     strain_11 = X_train_np[i, :, 1]  # Strain in the first direction (epsilon_11)
-#     # print(len( strain_11))
-#     # Extract true stress_11 (component 0 of stress tensor)
-#     true_stress_11 = y_train_np[i, :, 1]  # True stress in the first direction (sigma_11)
-
-#     # Extract predicted stress_11 (component 0 of predicted stress tensor)
-#     predicted_stress_11 = predictions[i, :, 1]  # Predicted stress in the first direction (sigma_11)
-
-#     # Compute R² score
-#     r2 = r2_score(true_stress_11, predicted_stress_11)
-
-#     # Plot true stress_11 and predicted stress_11 against strain_11
-#     plt.figure(figsize=(8, 6))
-#     plt.plot(strain_11, true_stress_11, label='True Stress_11', color='blue', marker='o')
-#     plt.plot(strain_11, predicted_stress_11, label='Predicted Stress_11', color='red', linestyle='--')
-
-#     # Labeling the plot
-#     plt.title(f'Train Sample {i+1}: Stress_11 vs Strain_11 (R2 = {r2:.4f})')
-#     plt.xlabel('Strain_11 (epsilon_11)')
-#     plt.ylabel('Stress_11 (sigma_11)')
-#     plt.legend()
-
-#     # Show plot
-#     plt.show()
-
-#     # Save plot as an image file
-#     plt.savefig(f'{save_dir}/plot_example_{i}.png')
-
-#     # Close the figure to free memory
-#     plt.close()
+    # Train Model
+    train_model(model, train_loader, optimizer, epochs, R)
 
 
-# In[ ]:
+    # TODO: THIS WAS COMMENTED CODE I COPIED AND PASTED HERE. FIGURE OUT WHAT IT DOES
+
+
+    # import torch
+    # import matplotlib.pyplot as plt
+    # import numpy as np
+    # import os
+    # from sklearn.metrics import r2_score
+
+    # # Ensure model is in evaluation mode
+    # model.eval()
+
+    # # Create a directory to save plots
+    # save_dir = 'test_set_plots_3'
+    # os.makedirs(save_dir, exist_ok=True)
+
+    # # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
+
+
+    # # Ensure X_test is a PyTorch tensor and move to the correct device
+    # X_test = X_test.to(next(model.parameters()).device)
+
+    # # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
+
+
+    # # Make predictions for the test set (disable gradients)
+    # with torch.no_grad():
+    #     predictions = model(X_test)  # Forward pass
+
+    # # Convert predictions and tensors back to NumPy
+    # predictions = predictions.cpu().numpy()
+    # X_test_np = X_test.cpu().numpy()
+    # y_test_np = y_test.cpu().numpy()
+
+    # # Number of test samples
+    # num_tests = X_test.shape[0]
+
+    # # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
+
+    # # Loop over each test sample to plot
+    # for i in range(num_tests):
+    #     # Extract strain_11 (component 0 of strain tensor)
+    #     strain_11 = X_test_np[i, :, 1]  # Strain in the first direction (epsilon_11)
+    #     # print(strain_11)
+        
+    #     # Extract true stress_11 (component 0 of stress tensor)
+    #     true_stress_11 = y_test_np[i, :, 1]  # True stress in the first direction (sigma_11)
+    #     # Extract predicted stress_11 (component 0 of predicted stress tensor)
+    #     predicted_stress_11 = predictions[i, :, 1]  # Predicted stress in the first direction (sigma_11)
+
+    #     # Compute R² score
+    #     r2 = r2_score(true_stress_11, predicted_stress_11)
+
+    #     # Plot true stress_11 and predicted stress_11 against strain_11
+    #     plt.figure(figsize=(8, 6))
+    #     plt.plot(strain_11, true_stress_11, label='True Stress_11', color='blue', marker='o')
+    #     plt.plot(strain_11, predicted_stress_11, label='Predicted Stress_11', color='red', linestyle='--')
+
+    #     # Labeling the plot
+    #     plt.title(f'Test Sample {i+1}: Stress_11 vs Strain_11 (R2 = {r2:.4f})')
+    #     plt.xlabel('Strain_11 (epsilon_11)')
+    #     plt.ylabel('Stress_11 (sigma_11)')
+    #     plt.legend()
+
+    #     # Show plot
+    #     plt.show()
+
+    #     # Save plot as an image file
+    #     plt.savefig(f'{save_dir}/plot_example_{i}.png')
+
+    #     # Close the figure to free memory
+    #     plt.close()
+
+
+    # TODO: THIS WAS COMMENTED CODE I COPIED AND PASTED HERE. FIGURE OUT WHAT IT DOES
+
+
+    # import torch
+    # import matplotlib.pyplot as plt
+    # import numpy as np
+    # import os
+    # from sklearn.metrics import r2_score
+
+    # # Ensure model is in evaluation mode
+    # model.eval()
+
+    # # Create a directory to save plots
+    # save_dir = 'test_set_plots_3'
+    # os.makedirs(save_dir, exist_ok=True)
+
+    # # Ensure X_test is a PyTorch tensor and move to the correct device
+    # X_train = X_train.to(next(model.parameters()).device)
+    # print(X_train.shape)
+    # # Make predictions for the test set (disable gradients)
+    # with torch.no_grad():
+    #     predictions = model(X_train)  # Forward pass
+
+    # # Convert predictions and tensors back to NumPy
+    # predictions = predictions.cpu().numpy()
+    # X_train_np = X_train.cpu().numpy()
+    # y_train_np = y_train.cpu().numpy()
+
+    # # Number of test samples
+    # num_train = X_train.shape[0]
+    # # print(num_tests, X_train)
+    # # Loop over each test sample to plot  
+    # for i in range(num_train):
+    #     # Extract strain_11 (component 0 of strain tensor)
+    #     strain_11 = X_train_np[i, :, 1]  # Strain in the first direction (epsilon_11)
+    #     # print(len( strain_11))
+    #     # Extract true stress_11 (component 0 of stress tensor)
+    #     true_stress_11 = y_train_np[i, :, 1]  # True stress in the first direction (sigma_11)
+
+    #     # Extract predicted stress_11 (component 0 of predicted stress tensor)
+    #     predicted_stress_11 = predictions[i, :, 1]  # Predicted stress in the first direction (sigma_11)
+
+    #     # Compute R² score
+    #     r2 = r2_score(true_stress_11, predicted_stress_11)
+
+    #     # Plot true stress_11 and predicted stress_11 against strain_11
+    #     plt.figure(figsize=(8, 6))
+    #     plt.plot(strain_11, true_stress_11, label='True Stress_11', color='blue', marker='o')
+    #     plt.plot(strain_11, predicted_stress_11, label='Predicted Stress_11', color='red', linestyle='--')
+
+    #     # Labeling the plot
+    #     plt.title(f'Train Sample {i+1}: Stress_11 vs Strain_11 (R2 = {r2:.4f})')
+    #     plt.xlabel('Strain_11 (epsilon_11)')
+    #     plt.ylabel('Stress_11 (sigma_11)')
+    #     plt.legend()
+
+    #     # Show plot
+    #     plt.show()
+
+    #     # Save plot as an image file
+    #     plt.savefig(f'{save_dir}/plot_example_{i}.png')
+
+    #     # Close the figure to free memory
+    #     plt.close()
+
+    # --- #
+    # GRU #
+    # --- #
     
-###GRU
-
-R=generateRmatrix(angle1[0], angle2[0], angle3[0])
-print(R)
-
-
-
-
-# In[ ]:
-
-# Define GRU Model
-class GRUModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim1, hidden_dim2, dropout1, dropout2):
-        super(GRUModel, self).__init__()
-        self.gru1 = nn.GRU(input_dim, hidden_dim1, batch_first=True)
-        self.dropout1 = nn.Dropout(dropout1)
-        self.gru2 = nn.GRU(hidden_dim1, hidden_dim2, batch_first=True)
-        self.dropout2 = nn.Dropout(dropout2)
-        self.fc = nn.Linear(hidden_dim2, 6)  # Output layer for regression
-
-    def forward(self, x):
-        print(f"Input shape to GRU: {x.shape}")  # Debugging
-        x, _ = self.gru1(x)
-        x = self.dropout1(x)
-        x, _ = self.gru2(x)
-        x = self.dropout2(x)
-        x = self.fc(x) 
-        print(f"Output shape from GRU: {x.shape}")  # Debugging
-        return x
-
-# Run Optuna Optimization
-study = optuna.create_study(direction="minimize")  # Minimize the loss
-# Training hyperparameters
-training_hyperparams = [
-    {'name':"batch_size", 'low':16, 'high':64, 'step':8},
-    {'name':"learning_rate", 'low':1e-5, 'high':1e-2, 'log':True}
-    ]
-model_hyperparams = [
-    ('int', {'name':"gru_units_1", 'low':32, 'high':128, 'step':16}),
-    ('int', {'name':"gru_units_2", 'low':16, 'high':64, 'step':16}),
-    ('float', {'name':"dropout1", 'low':0.1, 'high':0.5, 'step':0.1}),
-    ('float', {'name':"dropout2", 'low':0.1, 'high':0.5, 'step':0.1})
-    ]
-study.optimize(lambda trial: objective(trial, GRUModel, 6, model_hyperparams, training_hyperparams, X_train, y_train), n_trials=10)  # Reduce trials for debugging
-# Print best hyperparameters
-print("Best hyperparameters:", study.best_params)
+    # Run Optuna Optimization
+    study = optuna.create_study(direction="minimize")  # Minimize the loss
+    # Training hyperparameters
+    training_hyperparams = [
+        {'name':"batch_size", 'low':16, 'high':64, 'step':8},
+        {'name':"learning_rate", 'low':1e-5, 'high':1e-2, 'log':True}
+        ]
+    model_hyperparams = [
+        ('int', {'name':"gru_units_1", 'low':32, 'high':128, 'step':16}),
+        ('int', {'name':"gru_units_2", 'low':16, 'high':64, 'step':16}),
+        ('float', {'name':"dropout1", 'low':0.1, 'high':0.5, 'step':0.1}),
+        ('float', {'name':"dropout2", 'low':0.1, 'high':0.5, 'step':0.1})
+        ]
+    study.optimize(lambda trial: objective(trial, GRUModel, 6, model_hyperparams, training_hyperparams, X_train, y_train, device, R), n_trials=10)  # Reduce trials for debugging
+    # Print best hyperparameters
+    print("Best hyperparameters:", study.best_params)
 
 
-# In[ ]:
+    # Hyperparameters
+    batch_size = 56
+    lstm_units_1 = 112
+    lstm_units_2 = 16
+    dropout_1 = 0.1
+    dropout_2 = 0.3
+    learning_rate = 0.0085
+    epochs = 1000  # Adjust for testing
 
-# Hyperparameters
-batch_size = 56
-lstm_units_1 = 112
-lstm_units_2 = 16
-dropout_1 = 0.1
-dropout_2 = 0.3
-learning_rate = 0.0085
-epochs = 1000  # Adjust for testing
+    # Create DataLoader
+    train_dataset = TensorDataset(X_train, y_train)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
-# Create DataLoader
-train_dataset = TensorDataset(X_train, y_train)
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-
-# Initialize Model, Optimizer, Loss Function
-model = LSTMModel(input_dim=6, hidden_dim1=lstm_units_1, hidden_dim2=lstm_units_2,
-                  dropout1=dropout_1, dropout2=dropout_2).to(device)
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    # Initialize Model, Optimizer, Loss Function
+    model = GRUModel(input_dim=6, hidden_dim1=lstm_units_1, hidden_dim2=lstm_units_2,
+                      dropout1=dropout_1, dropout2=dropout_2).to(device)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 
-# Train Model
-train_model(model, train_loader, optimizer, epochs)
+    # Train Model
+    train_model(model, train_loader, optimizer, epochs, R)
 
 
-# In[ ]:
-
-
-# import torch
-# import matplotlib.pyplot as plt
-# import numpy as np
-# import os
-# from sklearn.metrics import r2_score
-
-# # Ensure model is in evaluation mode
-# model.eval()
-
-# # Create a directory to save plots
-# save_dir = 'test_set_plots_3'
-# os.makedirs(save_dir, exist_ok=True)
-
-# # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
-
-
-# # Ensure X_test is a PyTorch tensor and move to the correct device
-# X_test = X_test.to(next(model.parameters()).device)
-
-# # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
-
-
-# # Make predictions for the test set (disable gradients)
-# with torch.no_grad():
-#     predictions = model(X_test)  # Forward pass
-
-# # Convert predictions and tensors back to NumPy
-# predictions = predictions.cpu().numpy()
-# X_test_np = X_test.cpu().numpy()
-# y_test_np = y_test.cpu().numpy()
-
-# # Number of test samples
-# num_tests = X_test.shape[0]
-
-# # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
-
-# # Loop over each test sample to plot
-# for i in range(num_tests):
-#     # Extract strain_11 (component 0 of strain tensor)
-#     strain_11 = X_test_np[i, :, 1]  # Strain in the first direction (epsilon_11)
-#     # print(strain_11)
+    # TODO: THIS WAS COMMENTED CODE I COPIED AND PASTED HERE. FIGURE OUT WHAT IT DOES
     
-#     # Extract true stress_11 (component 0 of stress tensor)
-#     true_stress_11 = y_test_np[i, :, 1]  # True stress in the first direction (sigma_11)
-#     # Extract predicted stress_11 (component 0 of predicted stress tensor)
-#     predicted_stress_11 = predictions[i, :, 1]  # Predicted stress in the first direction (sigma_11)
+    
+    # import torch
+    # import matplotlib.pyplot as plt
+    # import numpy as np
+    # import os
+    # from sklearn.metrics import r2_score
+    
+    # # Ensure model is in evaluation mode
+    # model.eval()
+    
+    # # Create a directory to save plots
+    # save_dir = 'test_set_plots_3'
+    # os.makedirs(save_dir, exist_ok=True)
+    
+    # # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
+    
+    
+    # # Ensure X_test is a PyTorch tensor and move to the correct device
+    # X_test = X_test.to(next(model.parameters()).device)
+    
+    # # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
+    
+    
+    # # Make predictions for the test set (disable gradients)
+    # with torch.no_grad():
+    #     predictions = model(X_test)  # Forward pass
+    
+    # # Convert predictions and tensors back to NumPy
+    # predictions = predictions.cpu().numpy()
+    # X_test_np = X_test.cpu().numpy()
+    # y_test_np = y_test.cpu().numpy()
+    
+    # # Number of test samples
+    # num_tests = X_test.shape[0]
+    
+    # # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
+    
+    # # Loop over each test sample to plot
+    # for i in range(num_tests):
+    #     # Extract strain_11 (component 0 of strain tensor)
+    #     strain_11 = X_test_np[i, :, 1]  # Strain in the first direction (epsilon_11)
+    #     # print(strain_11)
+        
+    #     # Extract true stress_11 (component 0 of stress tensor)
+    #     true_stress_11 = y_test_np[i, :, 1]  # True stress in the first direction (sigma_11)
+    #     # Extract predicted stress_11 (component 0 of predicted stress tensor)
+    #     predicted_stress_11 = predictions[i, :, 1]  # Predicted stress in the first direction (sigma_11)
+    
+    #     # Compute R² score
+    #     r2 = r2_score(true_stress_11, predicted_stress_11)
+    
+    #     # Plot true stress_11 and predicted stress_11 against strain_11
+    #     plt.figure(figsize=(8, 6))
+    #     plt.plot(strain_11, true_stress_11, label='True Stress_11', color='blue', marker='o')
+    #     plt.plot(strain_11, predicted_stress_11, label='Predicted Stress_11', color='red', linestyle='--')
+    
+    #     # Labeling the plot
+    #     plt.title(f'Test Sample {i+1}: Stress_11 vs Strain_11 (R2 = {r2:.4f})')
+    #     plt.xlabel('Strain_11 (epsilon_11)')
+    #     plt.ylabel('Stress_11 (sigma_11)')
+    #     plt.legend()
+    
+    #     # Show plot
+    #     plt.show()
+    
+    #     # Save plot as an image file
+    #     plt.savefig(f'{save_dir}/plot_example_{i}.png')
+    
+    #     # Close the figure to free memory
+    #     plt.close()
 
-#     # Compute R² score
-#     r2 = r2_score(true_stress_11, predicted_stress_11)
-
-#     # Plot true stress_11 and predicted stress_11 against strain_11
-#     plt.figure(figsize=(8, 6))
-#     plt.plot(strain_11, true_stress_11, label='True Stress_11', color='blue', marker='o')
-#     plt.plot(strain_11, predicted_stress_11, label='Predicted Stress_11', color='red', linestyle='--')
-
-#     # Labeling the plot
-#     plt.title(f'Test Sample {i+1}: Stress_11 vs Strain_11 (R2 = {r2:.4f})')
-#     plt.xlabel('Strain_11 (epsilon_11)')
-#     plt.ylabel('Stress_11 (sigma_11)')
-#     plt.legend()
-
-#     # Show plot
-#     plt.show()
-
-#     # Save plot as an image file
-#     plt.savefig(f'{save_dir}/plot_example_{i}.png')
-
-#     # Close the figure to free memory
-#     plt.close()
 
 
+
+if __name__ == "__main__":
+    main()
