@@ -1,5 +1,8 @@
 # data-driven-constitutive
 
+*DO NOT UPLOAD LARGE DATA FILES TO THIS REPO*
+
+
 To run the files from Yuhui, we must install:
 - PyTorch
 - Optuna

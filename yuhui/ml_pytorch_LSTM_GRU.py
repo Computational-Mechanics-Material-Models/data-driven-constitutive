@@ -13,10 +13,13 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import random
+from scipy.stats import  qmc
 
 
-# TODO: Should this be moved to the strain generation?
+# TODO: Is there a better design to test objectivity?
 # It makes it really clunky to pass it to the function and do the rotations there!
+# TODO: if we don't need to memorize what this matrix should be, we could compute
+# it on the fly inside the loss function and avoid all this...
 def generateRmatrix(angle1, angle2, angle3):
     R1 = np.array([[np.cos(angle1), -np.sin(angle1), 0],[np.sin(angle1), np.cos(angle1), 0],[0, 0, 1]])
     print(R1.shape)
@@ -24,6 +27,10 @@ def generateRmatrix(angle1, angle2, angle3):
     R3 = np.array([[1, 0, 0], [0, np.cos(angle3), -np.sin(angle3)], [0, np.sin(angle3), np.cos(angle3)]])
     R = np.matmul(np.matmul(R1, R2), R3)
     return R
+
+
+
+
 
 
 # TODO JBC: Looks like what was in this Jupyter block and the next one could be
@@ -149,7 +156,7 @@ def extract_and_normalize_input_and_output(df_combined,
 def make_custom_loss_batch(model, X_batch, R):
     def custom_loss(y_pred, y_true):
         # Convert R to a PyTorch tensor
-        R_tensor = torch.tensor(R, dtype=torch.float32, device=y_pred.device) # TODO: DO NOT USE GLOBALS LIKE `R` !
+        R_tensor = torch.tensor(R, dtype=torch.float32, device=y_pred.device)
         strain = X_batch.to(dtype=torch.float32)
 
         # Extract the diagonal strain components (first three features)
@@ -355,14 +362,21 @@ def main():
     df_combined.to_csv("combined_dataset.csv", index=False)
 
 
-    # TODO: Ask Yuhui: files not provided
-    # TODO: The `strain_generation` script does not create files in .txt format or with angle1 name
-    # TODO: No idea how these files should be obtained...
-
-    angle1 = np.genfromtxt("angle1.txt", delimiter=',')
-    angle2 = np.genfromtxt("angle2.txt", delimiter=',')
-    angle3 = np.genfromtxt("angle3.txt", delimiter=',')
+    # Generate random orientation to weakly enforce objectivity through the
+    # objective function.
+    ndim_angle = 3
+    ndata_angle = 300
+    sampler = qmc.LatinHypercube(d = ndim_angle)
+    sample = sampler.random(n = ndata_angle)
+    angle1 = sample[:,0] * 2 * np.pi
+    angle2 = sample[:,1] * 2 * np.pi
+    angle3 = sample[:,2] * 2 * np.pi
+    # angle1 = np.genfromtxt("angle1.txt", delimiter=',')
+    # angle2 = np.genfromtxt("angle2.txt", delimiter=',')
+    # angle3 = np.genfromtxt("angle3.txt", delimiter=',')
     
+    # TODO: right now the script only uses a single matrix
+    # What is the expected design to test for many random configurations?
     R=generateRmatrix(angle1[0], angle2[0], angle3[0])
     print(R)
 
