@@ -51,7 +51,7 @@ def GPSample(control_points, step_points, lower, upper, kernelID = 0, numSamples
             ker = Exponentiation( upper**2 * RationalQuadratic(length_scale=1, alpha=0.1), exponent=2)
 
     gp = GaussianProcessRegressor(kernel=ker, alpha=1e-10,optimizer=None,n_restarts_optimizer=10)
-    control_values = np.random.uniform(lower, upper, len(control_points))
+    control_values = np.random.uniform(lower, upper, len(control_points)) # TODO: should that be an LHS to better cover the strain space?
     control_values[0] = 0.0 # Enforce zero initial strain
 
     gp.fit(control_points.reshape(-1, 1), control_values.reshape(-1, 1))

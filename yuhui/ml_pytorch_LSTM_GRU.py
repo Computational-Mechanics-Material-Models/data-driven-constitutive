@@ -285,9 +285,9 @@ def objective(trial, modelClass, model_input_size, model_hyperparams, training_h
     model_args = [model_input_size]
     for (datatype, hyperparam) in model_hyperparams:
         if (datatype == 'int'):
-            model_args += [trial.suggest_int(*hyperparam)]
+            model_args += [trial.suggest_int(**hyperparam)]
         elif (datatype == 'float'):
-            model_args += [trial.suggest_float(*hyperparam)]
+            model_args += [trial.suggest_float(**hyperparam)]
     # Initialize model
     model = modelClass(*tuple(model_args)).to(device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -412,7 +412,7 @@ def main():
         ('float', {'name':"dropout2", 'low':0.1, 'high':0.5, 'step':0.1})
         ]
 
-    study.optimize(lambda trial: objective(trial, LSTMModel, 6, model_hyperparams, training_hyperparams, X_train, y_train, device), n_trials=10)  # Reduce trials for debugging
+    study.optimize(lambda trial: objective(trial, LSTMModel, 6, model_hyperparams, training_hyperparams, X_train, y_train, device, R), n_trials=10)  # Reduce trials for debugging
     # Print best hyperparameters
     print("Best hyperparameters:", study.best_params)
 
