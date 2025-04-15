@@ -412,19 +412,20 @@ def main():
         ('float', {'name':"dropout2", 'low':0.1, 'high':0.5, 'step':0.1})
         ]
 
-    study.optimize(lambda trial: objective(trial, LSTMModel, 6, model_hyperparams, training_hyperparams, X_train, y_train, device, R), n_trials=10)  # Reduce trials for debugging
+    input_dim = 6
+    study.optimize(lambda trial: objective(trial, LSTMModel, input_dim, model_hyperparams, training_hyperparams, X_train, y_train, device, R), n_trials=10)  # Reduce trials for debugging
     # Print best hyperparameters
     print("Best hyperparameters:", study.best_params)
 
 
 
     # Hyperparameters
-    batch_size = 56
-    lstm_units_1 = 80
-    lstm_units_2 = 64
-    dropout_1 = 0.1
-    dropout_2 = 0.3
-    learning_rate = 0.005
+    batch_size = study.best_params['batch_size']
+    lstm_units_1 = study.best_params['lstm_units_1']
+    lstm_units_2 = study.best_params['lstm_units_2']
+    dropout_1 = study.best_params['dropout1']
+    dropout_2 = study.best_params['dropout2']
+    learning_rate = study.best_params['learning_rate']
     epochs = 1000  # Adjust for testing
 
     # Create DataLoader
@@ -432,7 +433,7 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
     # Initialize Model, Optimizer, Loss Function
-    model = LSTMModel(input_dim=6, hidden_dim1=lstm_units_1, hidden_dim2=lstm_units_2,
+    model = LSTMModel(input_dim=input_dim, hidden_dim1=lstm_units_1, hidden_dim2=lstm_units_2,
                       dropout1=dropout_1, dropout2=dropout_2).to(device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
@@ -602,12 +603,12 @@ def main():
 
 
     # Hyperparameters
-    batch_size = 56
-    lstm_units_1 = 112
-    lstm_units_2 = 16
-    dropout_1 = 0.1
-    dropout_2 = 0.3
-    learning_rate = 0.0085
+    batch_size = study.best_params['batch_size']
+    gru_units_1 = study.best_params['gru_units_1']
+    gru_units_2 = study.best_params['gru_units_2']
+    dropout_1 = study.best_params['dropout1']
+    dropout_2 = study.best_params['dropout2']
+    learning_rate = study.best_params['learning_rate']
     epochs = 1000  # Adjust for testing
 
     # Create DataLoader
@@ -615,7 +616,7 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
     # Initialize Model, Optimizer, Loss Function
-    model = GRUModel(input_dim=6, hidden_dim1=lstm_units_1, hidden_dim2=lstm_units_2,
+    model = GRUModel(input_dim=6, hidden_dim1=gru_units_1, hidden_dim2=gru_units_2,
                       dropout1=dropout_1, dropout2=dropout_2).to(device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
