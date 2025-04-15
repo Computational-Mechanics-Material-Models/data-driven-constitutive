@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
-import matplotlib.pyplot as plt
 import random
 from scipy.stats import  qmc
 
@@ -440,79 +439,40 @@ def main():
     # Train Model
     train_model(model, train_loader, optimizer, epochs, R)
 
-
-    # TODO: THIS WAS COMMENTED CODE I COPIED AND PASTED HERE. FIGURE OUT WHAT IT DOES
-
-
-    # import torch
-    # import matplotlib.pyplot as plt
-    # import numpy as np
-    # import os
-    # from sklearn.metrics import r2_score
-
-    # # Ensure model is in evaluation mode
-    # model.eval()
-
-    # # Create a directory to save plots
-    # save_dir = 'test_set_plots_3'
-    # os.makedirs(save_dir, exist_ok=True)
-
-    # # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
+    # TODO: store trained weights to file for use in constitutive model
+    # print(model.lstm1.weight_ih_l0.detach().numpy())
+    # print(model.lstm1.bias_ih_l0.detach().numpy())
+    # print(model.lstm1.weight_hh_l0.detach().numpy())
+    # print(model.lstm1.bias_hh_l0.detach().numpy())
+    # print(model.lstm1.all_weights)
+    # print(model.fc.weight.detach().numpy())
+    # print(model.fc.bias.detach().numpy())
 
 
-    # # Ensure X_test is a PyTorch tensor and move to the correct device
-    # X_test = X_test.to(next(model.parameters()).device)
+    # Test model
+    import matplotlib.pyplot as plt
+    from sklearn.metrics import r2_score
 
-    # # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
+    # Evaluation mode to remove effect of dropout layers. Disable gradients
+    model.eval()
+    with torch.no_grad():
+        predictions = model(X_test)
 
 
-    # # Make predictions for the test set (disable gradients)
-    # with torch.no_grad():
-    #     predictions = model(X_test)  # Forward pass
+    for i, (strain, stress_data, stress_model) in enumerate(zip(X_test[:,:,0], y_test[:,:,0], predictions[:,:,0])):
+        r2 = r2_score(stress_data, stress_model) # Compute R^2 score
 
-    # # Convert predictions and tensors back to NumPy
-    # predictions = predictions.cpu().numpy()
-    # X_test_np = X_test.cpu().numpy()
-    # y_test_np = y_test.cpu().numpy()
-
-    # # Number of test samples
-    # num_tests = X_test.shape[0]
-
-    # # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
-
-    # # Loop over each test sample to plot
-    # for i in range(num_tests):
-    #     # Extract strain_11 (component 0 of strain tensor)
-    #     strain_11 = X_test_np[i, :, 1]  # Strain in the first direction (epsilon_11)
-    #     # print(strain_11)
-        
-    #     # Extract true stress_11 (component 0 of stress tensor)
-    #     true_stress_11 = y_test_np[i, :, 1]  # True stress in the first direction (sigma_11)
-    #     # Extract predicted stress_11 (component 0 of predicted stress tensor)
-    #     predicted_stress_11 = predictions[i, :, 1]  # Predicted stress in the first direction (sigma_11)
-
-    #     # Compute R² score
-    #     r2 = r2_score(true_stress_11, predicted_stress_11)
-
-    #     # Plot true stress_11 and predicted stress_11 against strain_11
-    #     plt.figure(figsize=(8, 6))
-    #     plt.plot(strain_11, true_stress_11, label='True Stress_11', color='blue', marker='o')
-    #     plt.plot(strain_11, predicted_stress_11, label='Predicted Stress_11', color='red', linestyle='--')
-
-    #     # Labeling the plot
-    #     plt.title(f'Test Sample {i+1}: Stress_11 vs Strain_11 (R2 = {r2:.4f})')
-    #     plt.xlabel('Strain_11 (epsilon_11)')
-    #     plt.ylabel('Stress_11 (sigma_11)')
-    #     plt.legend()
-
-    #     # Show plot
-    #     plt.show()
-
-    #     # Save plot as an image file
-    #     plt.savefig(f'{save_dir}/plot_example_{i}.png')
-
-    #     # Close the figure to free memory
-    #     plt.close()
+        # Plot true stress_11 and predicted stress_11 against strain_11
+        plt.figure(figsize=(8, 6))
+        plt.plot(strain, stress_data, label='Data', color='blue', marker='o', linestyle='none')
+        plt.plot(strain, stress_model, label='LSTM', color='red', linestyle='--')
+        plt.title(f'Test Sample {i+1}: Stress_11 vs Strain_11 (R2 = {r2:.4f})')
+        plt.xlabel('e11')
+        plt.ylabel('s11')
+        plt.legend()
+        plt.show()
+        plt.savefig(f'plot_example_{i}.png')
+        plt.close()
 
 
     # TODO: THIS WAS COMMENTED CODE I COPIED AND PASTED HERE. FIGURE OUT WHAT IT DOES
