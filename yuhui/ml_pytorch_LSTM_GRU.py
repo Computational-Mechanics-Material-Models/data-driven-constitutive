@@ -312,6 +312,9 @@ def objective(trial, modelClass, model_input_size, model_hyperparams, training_h
 
 
 def main():
+    import matplotlib.pyplot as plt
+    from sklearn.metrics import r2_score
+
     # Check available GPUs
     physical_devices = torch.cuda.device_count()
     print(f"Available GPUs: {physical_devices}")
@@ -450,29 +453,10 @@ def main():
 
 
     # Test model
-    import matplotlib.pyplot as plt
-    from sklearn.metrics import r2_score
-
     # Evaluation mode to remove effect of dropout layers. Disable gradients
     model.eval()
     with torch.no_grad():
-        predictions = model(X_test)
-
-
-    for i, (strain, stress_data, stress_model) in enumerate(zip(X_test[:,:,0], y_test[:,:,0], predictions[:,:,0])):
-        r2 = r2_score(stress_data, stress_model) # Compute R^2 score
-
-        # Plot true stress_11 and predicted stress_11 against strain_11
-        plt.figure(figsize=(8, 6))
-        plt.plot(strain, stress_data, label='Data', color='blue', marker='o', linestyle='none')
-        plt.plot(strain, stress_model, label='LSTM', color='red', linestyle='--')
-        plt.title(f'Test Sample {i+1}: Stress_11 vs Strain_11 (R2 = {r2:.4f})')
-        plt.xlabel('e11')
-        plt.ylabel('s11')
-        plt.legend()
-        plt.show()
-        plt.savefig(f'plot_example_{i}.png')
-        plt.close()
+        predictions_LSTM = model(X_test)
 
 
     # --- #
@@ -492,7 +476,7 @@ def main():
         ('float', {'name':"dropout1", 'low':0.1, 'high':0.5, 'step':0.1}),
         ('float', {'name':"dropout2", 'low':0.1, 'high':0.5, 'step':0.1})
         ]
-    study.optimize(lambda trial: objective(trial, GRUModel, 6, model_hyperparams, training_hyperparams, X_train, y_train, device, R), n_trials=10)  # Reduce trials for debugging
+    study.optimize(lambda trial: objective(trial, GRUModel, input_dim, model_hyperparams, training_hyperparams, X_train, y_train, device, R), n_trials=10)  # Reduce trials for debugging
     # Print best hyperparameters
     print("Best hyperparameters:", study.best_params)
 
@@ -511,88 +495,37 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
     # Initialize Model, Optimizer, Loss Function
-    model = GRUModel(input_dim=6, hidden_dim1=gru_units_1, hidden_dim2=gru_units_2,
+    model = GRUModel(input_dim=input_dim, hidden_dim1=gru_units_1, hidden_dim2=gru_units_2,
                       dropout1=dropout_1, dropout2=dropout_2).to(device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
 
     # Train Model
     train_model(model, train_loader, optimizer, epochs, R)
 
 
-    # TODO: THIS WAS COMMENTED CODE I COPIED AND PASTED HERE. FIGURE OUT WHAT IT DOES
-    
-    
-    # import torch
-    # import matplotlib.pyplot as plt
-    # import numpy as np
-    # import os
-    # from sklearn.metrics import r2_score
-    
-    # # Ensure model is in evaluation mode
-    # model.eval()
-    
-    # # Create a directory to save plots
-    # save_dir = 'test_set_plots_3'
-    # os.makedirs(save_dir, exist_ok=True)
-    
-    # # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
-    
-    
-    # # Ensure X_test is a PyTorch tensor and move to the correct device
-    # X_test = X_test.to(next(model.parameters()).device)
-    
-    # # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
-    
-    
-    # # Make predictions for the test set (disable gradients)
-    # with torch.no_grad():
-    #     predictions = model(X_test)  # Forward pass
-    
-    # # Convert predictions and tensors back to NumPy
-    # predictions = predictions.cpu().numpy()
-    # X_test_np = X_test.cpu().numpy()
-    # y_test_np = y_test.cpu().numpy()
-    
-    # # Number of test samples
-    # num_tests = X_test.shape[0]
-    
-    # # print(X.shape, y.shape, X_test.shape, y_test.shape, X_train.shape, y_train.shape)
-    
-    # # Loop over each test sample to plot
-    # for i in range(num_tests):
-    #     # Extract strain_11 (component 0 of strain tensor)
-    #     strain_11 = X_test_np[i, :, 1]  # Strain in the first direction (epsilon_11)
-    #     # print(strain_11)
-        
-    #     # Extract true stress_11 (component 0 of stress tensor)
-    #     true_stress_11 = y_test_np[i, :, 1]  # True stress in the first direction (sigma_11)
-    #     # Extract predicted stress_11 (component 0 of predicted stress tensor)
-    #     predicted_stress_11 = predictions[i, :, 1]  # Predicted stress in the first direction (sigma_11)
-    
-    #     # Compute R² score
-    #     r2 = r2_score(true_stress_11, predicted_stress_11)
-    
-    #     # Plot true stress_11 and predicted stress_11 against strain_11
-    #     plt.figure(figsize=(8, 6))
-    #     plt.plot(strain_11, true_stress_11, label='True Stress_11', color='blue', marker='o')
-    #     plt.plot(strain_11, predicted_stress_11, label='Predicted Stress_11', color='red', linestyle='--')
-    
-    #     # Labeling the plot
-    #     plt.title(f'Test Sample {i+1}: Stress_11 vs Strain_11 (R2 = {r2:.4f})')
-    #     plt.xlabel('Strain_11 (epsilon_11)')
-    #     plt.ylabel('Stress_11 (sigma_11)')
-    #     plt.legend()
-    
-    #     # Show plot
-    #     plt.show()
-    
-    #     # Save plot as an image file
-    #     plt.savefig(f'{save_dir}/plot_example_{i}.png')
-    
-    #     # Close the figure to free memory
-    #     plt.close()
+    # Test model
+    # Evaluation mode to remove effect of dropout layers. Disable gradients
+    model.eval()
+    with torch.no_grad():
+        predictions_GRU = model(X_test)
 
+    # Plot results and comparison between LSTM and GRU
+    for i, (strain, stress_data, stress_LSTM, stress_GRU) in enumerate(zip(X_test.cpu()[:,:,0], y_test.cpu()[:,:,0], predictions_LSTM.cpu()[:,:,0], predictions_GRU.cpu()[:,:,0])):
+        r2_lstm = r2_score(stress_data, stress_LSTM) # Compute R^2 score
+        r2_gru = r2_score(stress_data, stress_GRU) # Compute R^2 score
+
+        # Plot true stress_11 and predicted stress_11 against strain_11
+        plt.figure(figsize=(8, 6))
+        plt.plot(strain, stress_data, label='Data', color='grey', marker='o', linestyle='none')
+        plt.plot(strain, stress_LSTM, label='LSTM', color='red', linestyle='--')
+        plt.plot(strain, stress_GRU, label='GRU', color='blue', linestyle='--')
+        plt.title(f'Test Sample {i+1}: (R2_LSTM = {r2_lstm:.4f} , R2_GRU = {r2_gru:.4f})')
+        plt.xlabel('e11')
+        plt.ylabel('s11')
+        plt.legend()
+        plt.show()
+        plt.savefig(f'plot_example_{i}.png')
+        plt.close()
 
 
 
