@@ -4,14 +4,9 @@
 # and Gated Recursive Units (GRU) networks to model quasi-brittle materials
 
 import torch
-import torch.nn as nn
-import torch.optim as optim
-import optuna
 import numpy as np
 import pandas as pd
-from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
-import random
 from scipy.stats import  qmc
 
 
@@ -151,169 +146,19 @@ def extract_and_normalize_input_and_output(df_combined,
     return X, y
 
 
-# Define custom loss function in PyTorch
-def make_custom_loss_batch(model, X_batch, R):
-    def custom_loss(y_pred, y_true):
-        # Convert R to a PyTorch tensor
-        R_tensor = torch.tensor(R, dtype=torch.float32, device=y_pred.device)
-        strain = X_batch.to(dtype=torch.float32)
-
-        # Extract the diagonal strain components (first three features)
-        diagonal_strain = strain[:, :, :3]  # Shape: (batch_size, 1000, 3)
-
-        # Compute Term 1: MSE loss between predictions and ground truth
-        term1 = torch.mean(torch.sum((y_pred - y_true) ** 2, dim=[1, 2]))
-
-        # Compute Term 2: Rotation-based transformation
-        rotated_strain = torch.matmul(diagonal_strain.view(-1, 3), R_tensor)
-        rotated_strain = rotated_strain.view(diagonal_strain.shape)  # Reshape to original shape
-
-        # Compute R^{-1} (inverse of R)
-        R_tensor_inv = torch.linalg.inv(R_tensor)  
-        transformed_strain = torch.matmul(rotated_strain.view(-1, 3), R_tensor_inv)
-        transformed_strain = transformed_strain.view(rotated_strain.shape)
-
-        # Pad transformed strain to match the input shape
-        transformed_strain_padded = torch.cat(
-            [transformed_strain, torch.zeros_like(strain[:, :, 3:])], dim=-1
-        )
-
-        # Predict stress using the model
-        predicted_transformed_stress = model(transformed_strain_padded)  
-
-        # Apply rotation matrix to stress
-        rotated_stress = torch.matmul(y_pred[:, :, :3].reshape(-1, 3), R_tensor)
-        rotated_stress = rotated_stress.view(y_pred[:, :, :3].shape)
-
-        # Compute Term 2 difference
-        difference = predicted_transformed_stress[:, :, :3] - rotated_stress
-        term2 = torch.mean(torch.sum(difference ** 2, dim=[1, 2]))
-
-        # Compute Term 3: Delta stress change
-        strain_current = strain[:, 1:, :6]  
-        strain_previous = strain[:, :-1, :6]  
-        delta_sigma = torch.cat(
-            [strain_previous[:, :1, :], strain_current - strain_previous], dim=1
-        )
-
-        # Compute stress dot product change
-        stress_dot_change = torch.sum(y_pred * delta_sigma, dim=[1, 2])
-        t = 1.0
-        relu_term = nn.functional.relu(-t * stress_dot_change)
-        term3 = torch.mean(relu_term)
-
-        # Print debug information
-        print("term1:", term1.item(), "term2:", term2.item(), "term3:", term3.item(), "sum:", (term1 + term2 + term3).item())
-
-        return term1 + term3  # Return the final loss (excluding term2)
-
-    return custom_loss
-
-
-
-# Define LSTM Model
-class LSTMModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim1, hidden_dim2, dropout1, dropout2):
-        super(LSTMModel, self).__init__()
-        self.lstm1 = nn.LSTM(input_dim, hidden_dim1, batch_first=True)
-        self.dropout1 = nn.Dropout(dropout1)
-        self.lstm2 = nn.LSTM(hidden_dim1, hidden_dim2, batch_first=True)
-        self.dropout2 = nn.Dropout(dropout2)
-        self.fc = nn.Linear(hidden_dim2, 6)  # Output layer for regression
-
-    def forward(self, x):
-        print(f"Input shape to LSTM: {x.shape}")  # Debugging
-        x, _ = self.lstm1(x)
-        x = self.dropout1(x)
-        x, _ = self.lstm2(x)
-        x = self.dropout2(x)
-        x = self.fc(x) # Select last timestep for prediction
-        print(f"Output shape from LSTM: {x.shape}")  # Debugging
-        return x
-
-
-# Define GRU Model
-class GRUModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim1, hidden_dim2, dropout1, dropout2):
-        super(GRUModel, self).__init__()
-        self.gru1 = nn.GRU(input_dim, hidden_dim1, batch_first=True)
-        self.dropout1 = nn.Dropout(dropout1)
-        self.gru2 = nn.GRU(hidden_dim1, hidden_dim2, batch_first=True)
-        self.dropout2 = nn.Dropout(dropout2)
-        self.fc = nn.Linear(hidden_dim2, 6)  # Output layer for regression
-
-    def forward(self, x):
-        print(f"Input shape to GRU: {x.shape}")  # Debugging
-        x, _ = self.gru1(x)
-        x = self.dropout1(x)
-        x, _ = self.gru2(x)
-        x = self.dropout2(x)
-        x = self.fc(x)
-        print(f"Output shape from GRU: {x.shape}")  # Debugging
-        return x
-
-
-def train_model(model, train_loader, optimizer, epochs, R):
-    model.train()
-    for epoch in range(epochs):
-        total_loss_epoch = 0.0
-        for X_batch, y_batch in train_loader:
-            optimizer.zero_grad()
-            y_pred = model(X_batch)
-
-            # Get the loss function dynamically for this batch
-            loss_fn = make_custom_loss_batch(model, X_batch, R)
-            loss = loss_fn(y_pred, y_batch)
-
-            loss.backward()
-            optimizer.step()
-            total_loss_epoch += loss.item()
-        print(f'Epoch {epoch + 1}/{epochs} - Total Loss: {total_loss_epoch}')
-    return total_loss_epoch # Return loss at last training epoch
-
-# Define Optuna Objective Function
-def objective(trial, modelClass, model_input_size, model_hyperparams, training_hyperparams, X_train, y_train, device, R):
-    # model_hyperparams = list of {dic of trial.suggest_type() arguments} for batch_size and learning_rate
-    # model_hyperparams =  list of ('type', {dic of trial.suggest_type() arguments}) for Network parameters
-    # Assumes modelClass constructor is of the form modelClass(model_input_size, hyperparameter1, hyperparameter2...)
-
-    # Sample hyperparameters
-    batch_size = trial.suggest_int(**training_hyperparams[0])
-    learning_rate = trial.suggest_float(**training_hyperparams[1])
-
-    model_args = [model_input_size]
-    for (datatype, hyperparam) in model_hyperparams:
-        if (datatype == 'int'):
-            model_args += [trial.suggest_int(**hyperparam)]
-        elif (datatype == 'float'):
-            model_args += [trial.suggest_float(**hyperparam)]
-    # Initialize model
-    model = modelClass(*tuple(model_args)).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    # Create DataLoader (Fix 1: drop_last=True to ensure equal batch sizes)
-    train_dataset = TensorDataset(X_train, y_train)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-    # criterion = nn.MSELoss()  # Mean Squared Error for regression task
-
-    # # Debugging: Check first batch shapes
-    # for X_batch, y_batch in train_loader:
-    #     print(f"Batch X shape: {X_batch.shape}")  # Expected: (batch_size, sequence_length, num_features)
-    #     print(f"Batch y shape: {y_batch.shape}")  # Expected: (batch_size, 6)
-    #     break
-
-    # Training loop
-    epochs = 300
-    return train_model(model, train_loader, optimizer, epochs, R) # Return final loss for Optuna to minimize
-
-
-
-
-
-
 def main():
     import matplotlib.pyplot as plt
     from sklearn.metrics import r2_score
+
+    # Add models and training routines from external files
+    # TODO: this is temporary. we should create a python package to do that cleanly
+    import sys, os
+    sys.path.append(os.path.abspath('..')) # TODO: hardcoded path only works if working dir is dir containing this script file
+    from models import logarzo_lstm as LSTMModel
+    from models import logarzo_gru as GRUModel
+    from training import loss_yuhuilyu
+    from training import train
+    from training import optimize_hyperparameters
 
     # Check available GPUs
     physical_devices = torch.cuda.device_count()
@@ -400,117 +245,83 @@ def main():
     # LSTM model #
     # ---------- #
 
-    # Run Optuna Optimization
-    study = optuna.create_study(direction="minimize")  # Minimize the loss
-    # Training hyperparameters
-    training_hyperparams = [
+    training_hyperparams_lstm = [
         {'name':"batch_size", 'low':16, 'high':64, 'step':8},
         {'name':"learning_rate", 'low':1e-5, 'high':1e-2, 'log':True}
         ]
-    model_hyperparams = [
-        ('int', {'name':"lstm_units_1", 'low':32, 'high':128, 'step':16}),
-        ('int', {'name':"lstm_units_2", 'low':16, 'high':64, 'step':16}),
+    model_hyperparams_lstm = [
+        ('int', {'name':"hidden_dim1", 'low':32, 'high':128, 'step':16}),
+        ('int', {'name':"hidden_dim2", 'low':16, 'high':64, 'step':16}),
         ('float', {'name':"dropout1", 'low':0.1, 'high':0.5, 'step':0.1}),
         ('float', {'name':"dropout2", 'low':0.1, 'high':0.5, 'step':0.1})
         ]
+    input_dim_lstm = 6
 
-    input_dim = 6
-    study.optimize(lambda trial: objective(trial, LSTMModel, input_dim, model_hyperparams, training_hyperparams, X_train, y_train, device, R), n_trials=10)  # Reduce trials for debugging
-    # Print best hyperparameters
-    print("Best hyperparameters:", study.best_params)
+    # --------- #
+    # GRU model #
+    # --------- #
 
-
-
-    # Hyperparameters
-    batch_size = study.best_params['batch_size']
-    lstm_units_1 = study.best_params['lstm_units_1']
-    lstm_units_2 = study.best_params['lstm_units_2']
-    dropout_1 = study.best_params['dropout1']
-    dropout_2 = study.best_params['dropout2']
-    learning_rate = study.best_params['learning_rate']
-    epochs = 1000  # Adjust for testing
-
-    # Create DataLoader
-    train_dataset = TensorDataset(X_train, y_train)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-
-    # Initialize Model, Optimizer, Loss Function
-    model = LSTMModel(input_dim=input_dim, hidden_dim1=lstm_units_1, hidden_dim2=lstm_units_2,
-                      dropout1=dropout_1, dropout2=dropout_2).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    # Train Model
-    train_model(model, train_loader, optimizer, epochs, R)
-
-    # TODO: store trained weights to file for use in constitutive model
-    # print(model.lstm1.weight_ih_l0.detach().numpy())
-    # print(model.lstm1.bias_ih_l0.detach().numpy())
-    # print(model.lstm1.weight_hh_l0.detach().numpy())
-    # print(model.lstm1.bias_hh_l0.detach().numpy())
-    # print(model.lstm1.all_weights)
-    # print(model.fc.weight.detach().numpy())
-    # print(model.fc.bias.detach().numpy())
-
-
-    # Test model
-    # Evaluation mode to remove effect of dropout layers. Disable gradients
-    model.eval()
-    with torch.no_grad():
-        predictions_LSTM = model(X_test)
-
-
-    # --- #
-    # GRU #
-    # --- #
-    
-    # Run Optuna Optimization
-    study = optuna.create_study(direction="minimize")  # Minimize the loss
-    # Training hyperparameters
-    training_hyperparams = [
+    training_hyperparams_gru = [
         {'name':"batch_size", 'low':16, 'high':64, 'step':8},
         {'name':"learning_rate", 'low':1e-5, 'high':1e-2, 'log':True}
         ]
-    model_hyperparams = [
-        ('int', {'name':"gru_units_1", 'low':32, 'high':128, 'step':16}),
-        ('int', {'name':"gru_units_2", 'low':16, 'high':64, 'step':16}),
+    model_hyperparams_gru = [
+        ('int', {'name':"hidden_dim1", 'low':32, 'high':128, 'step':16}),
+        ('int', {'name':"hidden_dim2", 'low':16, 'high':64, 'step':16}),
         ('float', {'name':"dropout1", 'low':0.1, 'high':0.5, 'step':0.1}),
         ('float', {'name':"dropout2", 'low':0.1, 'high':0.5, 'step':0.1})
         ]
-    study.optimize(lambda trial: objective(trial, GRUModel, input_dim, model_hyperparams, training_hyperparams, X_train, y_train, device, R), n_trials=10)  # Reduce trials for debugging
-    # Print best hyperparameters
-    print("Best hyperparameters:", study.best_params)
+    input_dim_gru = 6
 
 
-    # Hyperparameters
-    batch_size = study.best_params['batch_size']
-    gru_units_1 = study.best_params['gru_units_1']
-    gru_units_2 = study.best_params['gru_units_2']
-    dropout_1 = study.best_params['dropout1']
-    dropout_2 = study.best_params['dropout2']
-    learning_rate = study.best_params['learning_rate']
-    epochs = 1000  # Adjust for testing
+    # Train models
+    models = []
+    model_names = ("LSTM", "GRU")
 
-    # Create DataLoader
-    train_dataset = TensorDataset(X_train, y_train)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    epochs_hyperparams = 300 # fewer amount for hyperparameters training
+    n_trials = 10 # Reduce trials for debugging
+    epochs_training = 1000  # Adjust for testing
 
-    # Initialize Model, Optimizer, Loss Function
-    model = GRUModel(input_dim=input_dim, hidden_dim1=gru_units_1, hidden_dim2=gru_units_2,
-                      dropout1=dropout_1, dropout2=dropout_2).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    for modelClass, training_hyperparams, model_hyperparams, input_dim, name in zip((LSTMModel, GRUModel),
+                                                                                    (training_hyperparams_lstm, training_hyperparams_gru),
+                                                                                    (model_hyperparams_lstm, model_hyperparams_gru),
+                                                                                    (input_dim_lstm, input_dim_gru),
+                                                                                    model_names):
+        print(name)
+        # Training hyperparameters
+        hyperparams = optimize_hyperparameters(modelClass, input_dim, model_hyperparams, training_hyperparams, device, X_train, y_train, epochs_hyperparams, n_trials, loss_yuhuilyu, R)
+        print(f"Best hyperparameters {name}:", hyperparams)
 
-    # Train Model
-    train_model(model, train_loader, optimizer, epochs, R)
+        # Train model using optimized Hyperparameters
+        batch_size = hyperparams['batch_size']
+        learning_rate = hyperparams['learning_rate']
+        model_hyperparams = {key:hyperparams[key] for key in hyperparams if (key != 'batch_size' and key != 'learning_rate')}
+
+        model = modelClass(input_dim=input_dim, **model_hyperparams).to(device)
+        train(model, X_train, y_train, batch_size, epochs_training, learning_rate, loss_yuhuilyu, R)
+        models += [model]
+
+        # TODO: store trained weights to file for use in constitutive model
+        # print(model.lstm1.weight_ih_l0.detach().numpy())
+        # print(model.lstm1.bias_ih_l0.detach().numpy())
+        # print(model.lstm1.weight_hh_l0.detach().numpy())
+        # print(model.lstm1.bias_hh_l0.detach().numpy())
+        # print(model.lstm1.all_weights)
+        # print(model.fc.weight.detach().numpy())
+        # print(model.fc.bias.detach().numpy())
 
 
-    # Test model
-    # Evaluation mode to remove effect of dropout layers. Disable gradients
-    model.eval()
-    with torch.no_grad():
-        predictions_GRU = model(X_test)
+    # Test models
+    predictions = []
+    for model in models:
+        # Evaluation mode to remove effect of dropout layers. Disable gradients
+        model.eval()
+        with torch.no_grad():
+            predictions += [model(X_test)]
+
 
     # Plot results and comparison between LSTM and GRU
-    for i, (strain, stress_data, stress_LSTM, stress_GRU) in enumerate(zip(X_test.cpu()[:,:,0], y_test.cpu()[:,:,0], predictions_LSTM.cpu()[:,:,0], predictions_GRU.cpu()[:,:,0])):
+    for i, (strain, stress_data, stress_LSTM, stress_GRU) in enumerate(zip(X_test.cpu()[:,:,0], y_test.cpu()[:,:,0], predictions[0].cpu()[:,:,0], predictions[1].cpu()[:,:,0])):
         r2_lstm = r2_score(stress_data, stress_LSTM) # Compute R^2 score
         r2_gru = r2_score(stress_data, stress_GRU) # Compute R^2 score
 
