@@ -47,9 +47,9 @@ class logarzo_gru(nn.Module):
 # Simple feed-forward network with linear layers for time-independent model.
 # Input: current strain, current stress, strain increment
 # Output: stress increment
-class incremental_linear(nn.Module):
+class ff_linear(nn.Module):
     def __init__(self, input_dim, num_hidden, hidden_dim, output_dim, hidden_activation):
-        super(incremental_linear, self).__init__()
+        super(ff_linear, self).__init__()
         self.input_dim = input_dim
         self.num_hidden = num_hidden
         self.output_dim = output_dim
@@ -67,6 +67,8 @@ class incremental_linear(nn.Module):
                 self.fh = F.tanh
             case 'sigmoid':
                  self.fh = F.sigmoid
+            case 'leaky_relu':
+                self.fh = F.leaky_relu # Default negative slope of 0.01
 
     def forward(self, x):
         for layer in self.layers[:-1]:
