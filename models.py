@@ -79,3 +79,73 @@ class ff_linear(nn.Module):
 
 
 
+
+# Recursive Neural Network architecture of Bhattacharya et al. 2023. https://doi.org/10.1137/22M1499200
+# Uses 2 feed-forward neural network:
+# the first one computes the derivatives of the state variables
+# the second one compute the stress from updated state variables
+class bhattacharya_rnn(nn.Module):
+    def __init__(self, num_statevar, num_hidden_G, hidden_dim_G, activation_G,
+                                     num_hidden_F, hidden_dim_F, activation_F):
+        super(bhattacharya_rnn, self).__init__()
+        self.num_statevar = num_statevar
+        input_dim_G = 6 + num_statevar # input = strain (6) and state variables
+        output_dim_G = num_statevar # output = state variables
+        input_dim_F = 6 + 6 + num_statevar # input = strain (6), strain derivatives (6) and state variables
+        output_dim_F = 6 # output = stress
+
+        networks = [nn.ModuleList(), nn.ModuleList()]
+        activations = [None, None]
+        for n, (input_dim, num_hidden, hidden_dim, output_dim, activation) in enumerate(zip((input_dim_G, input_dim_F),
+                                                                                            (num_hidden_G, num_hidden_F),
+                                                                                            (hidden_dim_G, hidden_dim_F),
+                                                                                            (output_dim_G, output_dim_F),
+                                                                                            (activation_G, activation_F))):
+            networks[n].append(nn.Linear(input_dim, hidden_dim))
+            for i in range(num_hidden-1):
+                networks[n].append(nn.Linear(hidden_dim, hidden_dim))
+            networks[n].append(nn.Linear(hidden_dim, output_dim))
+
+            match activation:
+                case 'selu':
+                    activations[n] = F.selu # Function used in the paper
+                case 'relu':
+                    activations[n] = F.relu
+                case 'tanh':
+                    activations[n] = F.tanh
+                case 'sigmoid':
+                      activations[n] = F.sigmoid
+                case 'leaky_relu':
+                    activations[n] = F.leaky_relu # Default negative slope of 0.01
+        self.network_G = networks[0]
+        self.network_F = networks[1]
+        self.f_G = activations[0]
+        self.f_F = activations[1]
+
+    def forward(self, x):
+        # Assumes x shape is [batch_size, sequence_length, features (13)]
+        batch_size = x.shape[0]
+        seq_len = x.shape[1]
+        # Assume features is (time, strain, rate of deformation)
+        timesteps = x[:, 1:, 0] - x[:, :-1, 0]
+        strain = x[:, :, 1:7]
+        strain_dot = x[:, :, 7:]
+
+        # First network G: state variable evolution
+        # We don't use torch.nn.RNN (which would likely be more practical) because activations are only tanh or reLU
+        statevar = torch.zeros(batch_size, seq_len, self.num_statevar)
+        for i in range(seq_len - 1):
+            dt = timesteps[:, i]
+            x_t = torch.cat([strain[:, i, :], statevar[:, i, :]], dim = 1)
+            for layer in self.network_G[:-1]:
+                x_t = self.f_G(layer(x_t))
+            statevar_dot = self.network_G[-1](x_t) # Last layer activation = identity
+            statevar[:, i+1, :] = statevar[:, i, :] + dt.unsqueeze(1) * statevar_dot # Forward Euler update
+
+        # Second network F: stress calculation
+        x_F = torch.cat([strain, strain_dot, statevar], dim = 2)
+        for layer in self.network_F[:-1]:
+            x_F = self.f_F(layer(x_F))
+        x_F = self.network_F[-1](x_F) # Last layer activation = identity
+
+        return x_F
