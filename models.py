@@ -77,8 +77,55 @@ class ff_linear(nn.Module):
         return x
     
 
+# Recursive neural network with linear layers for time-independent model.
+# Input: previous strain, strain increment, previous stress
+# Output: stress increment, fed back recursively to the previous stress
+class rnn_linear(nn.Module):
+    def __init__(self, input_dim, num_hidden, hidden_dim, output_dim, hidden_activation):
+        super(rnn_linear, self).__init__()
+        self.input_dim = input_dim
+        self.num_hidden = num_hidden
+        self.output_dim = output_dim
+        self.layers = nn.ModuleList()
 
+        self.layers.append(nn.Linear(input_dim, hidden_dim))
+        for i in range(num_hidden-1):
+            self.layers.append(nn.Linear(hidden_dim, hidden_dim))
+        self.layers.append(nn.Linear(hidden_dim, output_dim))
 
+        match hidden_activation:
+            case 'relu':
+                self.fh = F.relu
+            case 'tanh':
+                self.fh = F.tanh
+            case 'sigmoid':
+                  self.fh = F.sigmoid
+            case 'leaky_relu':
+                self.fh = F.leaky_relu # Default negative slope of 0.01
+
+    def forward(self, x): # TODO: there is likely  a better way of doing this, e.g. with stress as hidden variable
+        # Assumes x shape is [batch_size, sequence_length, features (18)] with stress at the end
+        if (self.training):
+            # Train model using stress in the data as input
+            # This is not recursive and should be fast and accurate
+            stress_prev = x[:, :, 12:]
+            for layer in self.layers[:-1]:
+                x = self.fh(layer(x))
+            stress_incr = self.layers[-1](x) # Last layer activation = identity
+            stress = stress_prev + stress_incr
+        else:
+            # Evaluate model using its own recursive prediction of the stress
+            stress = torch.zeros(x.shape[0], x.shape[1], self.output_dim)
+            stress_prev_t = x[:, 0, 12:]
+            for t in range(x.shape[1]):
+                x_t = x[:,t,:]
+                x_t[:,12:] = stress_prev_t
+                for layer in self.layers[:-1]:
+                    x_t = self.fh(layer(x_t))
+                stress_incr_t = self.layers[-1](x_t) # Last layer activation = identity
+                stress[:, t, :] = stress_prev_t + stress_incr_t
+                stress_prev_t = stress[:, t, :]
+        return stress
 
 # Recursive Neural Network architecture of Bhattacharya et al. 2023. https://doi.org/10.1137/22M1499200
 # Uses 2 feed-forward neural network:
