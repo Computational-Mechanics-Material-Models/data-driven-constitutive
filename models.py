@@ -116,10 +116,9 @@ class rnn_linear(nn.Module):
         else:
             # Evaluate model using its own recursive prediction of the stress
             stress = torch.zeros(x.shape[0], x.shape[1], self.output_dim)
-            stress_prev_t = x[:, 0, 12:]
+            stress_prev_t = torch.zeros(x.shape[0], self.output_dim) # Previous stress at start of sequence assumed zero
             for t in range(x.shape[1]):
-                x_t = x[:,t,:]
-                x_t[:,12:] = stress_prev_t
+                x_t = torch.cat([x[:, t, :12], stress_prev_t], dim = 1)
                 for layer in self.layers[:-1]:
                     x_t = self.fh(layer(x_t))
                 stress_incr_t = self.layers[-1](x_t) # Last layer activation = identity
