@@ -45,9 +45,11 @@ class logarzo_gru(nn.Module):
 
 
 # Simple feed-forward network with linear layers for time-independent model.
-# Input: current strain, current stress, strain increment
-# Output: stress increment
+# Network predicts stress increment ds and updates stress: s_t = s_(t-1) + ds
 class ff_linear(nn.Module):
+    # For constitutive modeling:
+    # Input: previous strain, current strain, previous stress
+    # Output: stress increment
     def __init__(self, input_dim, num_hidden, hidden_dim, output_dim, hidden_activation):
         super(ff_linear, self).__init__()
         self.input_dim = input_dim
@@ -78,53 +80,78 @@ class ff_linear(nn.Module):
     
 
 # Recursive neural network with linear layers for time-independent model.
-# Input: previous strain, strain increment, previous stress
-# Output: stress increment, fed back recursively to the previous stress
 class rnn_linear(nn.Module):
-    def __init__(self, input_dim, num_hidden, hidden_dim, output_dim, hidden_activation):
+    # For constitutive modeling, network predicts stress increment ds from
+    # previous strain e_(t-1), current strain e_t, previous stress s_(t-1), and
+    # performs forward update to current stress: s_t = s_(t-1) + ds
+    def __init__(self, num_hidden, size_hidden, activation, training_style):
         super(rnn_linear, self).__init__()
-        self.input_dim = input_dim
         self.num_hidden = num_hidden
-        self.output_dim = output_dim
-        self.layers = nn.ModuleList()
+        self.size_hidden = size_hidden
+        self.activation = activation
+        self.training_style = training_style # 'direct', or 'recursive''
+        self.size_sym_tensor = 6
+        # Input layer: separate inputs into 3 independent partial layers
+        # Makes stress as hidden variable easier than single size-18 layer
+        # Only one set of bias necessary for all 3 additive partial layers
+        self.input_layers = nn.ModuleList()
+        self.input_layers.append(nn.Linear(self.size_sym_tensor, size_hidden, bias = True)) # Previous strain
+        self.input_layers.append(nn.Linear(self.size_sym_tensor, size_hidden, bias = False)) # Current strain
+        self.input_layers.append(nn.Linear(self.size_sym_tensor, size_hidden, bias = False)) # Previous stress
+        # Hidden layers
+        self.hidden_layers = nn.ModuleList()
+        for i in range(num_hidden - 1):
+            self.hidden_layers.append(nn.Linear(size_hidden, size_hidden))
+        # Output layer
+        self.output_layer = nn.Linear(size_hidden, self.size_sym_tensor)
 
-        self.layers.append(nn.Linear(input_dim, hidden_dim))
-        for i in range(num_hidden-1):
-            self.layers.append(nn.Linear(hidden_dim, hidden_dim))
-        self.layers.append(nn.Linear(hidden_dim, output_dim))
-
-        match hidden_activation:
+        match activation:
             case 'relu':
-                self.fh = F.relu
+                self.f = F.relu
             case 'tanh':
-                self.fh = F.tanh
+                self.f = F.tanh
             case 'sigmoid':
-                  self.fh = F.sigmoid
+                self.f = F.sigmoid
             case 'leaky_relu':
-                self.fh = F.leaky_relu # Default negative slope of 0.01
+                self.f = F.leaky_relu # Default negative slope of 0.01
 
-    def forward(self, x): # TODO: there is likely  a better way of doing this, e.g. with stress as hidden variable
-        # Assumes x shape is [batch_size, sequence_length, features (18)] with stress at the end
-        if (self.training):
-            # Train model using stress in the data as input
-            # This is not recursive and should be fast and accurate
-            stress_prev = x[:, :, 12:]
-            for layer in self.layers[:-1]:
-                x = self.fh(layer(x))
-            stress_incr = self.layers[-1](x) # Last layer activation = identity
-            stress = stress_prev + stress_incr
+    def forward(self, strain_history, stress_history = None):
+        if (self.training_style == 'direct' and stress_history == None):
+            raise ValueError("direct training style requires strain_history")
+
+        # Assumes strain_history shape [batch_size, sequence_length, features]
+        batch_size = strain_history.shape[0]
+        seq_len = strain_history.shape[1]
+        strain_prev = strain_history[:, :-1, :]
+        strain_curr = strain_history[:, 1:, :]
+        stress_curr = torch.zeros(batch_size, seq_len, self.size_sym_tensor) # TODO: this currently assumes initial stress is zero and overwrites stress_history value if not zero. Consider changing it
+
+        if (self.training and self.training_style == 'direct'):
+            # Train model using stress history in the data as input
+            stress_prev = stress_history[:, :-1, :]
+            x = self.f(self.input_layers[0](strain_prev) +
+                       self.input_layers[1](strain_curr) +
+                       self.input_layers[2](stress_prev))
+            for layer in self.hidden_layers:
+                x = self.f(layer(x))
+            stress_incr = self.output_layer(x) # Last layer activation = identity
+            stress_curr[:, 1:, :] = stress_prev + stress_incr
         else:
-            # Evaluate model using its own recursive prediction of the stress
-            stress = torch.zeros(x.shape[0], x.shape[1], self.output_dim)
-            stress_prev_t = torch.zeros(x.shape[0], self.output_dim) # Previous stress at start of sequence assumed zero
-            for t in range(x.shape[1]):
-                x_t = torch.cat([x[:, t, :12], stress_prev_t], dim = 1)
-                for layer in self.layers[:-1]:
+            # Train/Evaluate model on its own recursive prediction of stress
+            stress_prev_t = torch.zeros(batch_size, self.size_sym_tensor)  # TODO: this currently assumes initial stress is zero and overwrites stress_history value if not zero. Consider changing it
+            for t in range(seq_len - 1):
+                strain_prev_t = strain_prev[:, t, :]
+                strain_curr_t = strain_curr[:, t, :]
+                x_t = self.f(self.input_layers[0](strain_prev_t) +
+                             self.input_layers[1](strain_curr_t) +
+                             self.input_layers[2](stress_prev_t))
+                for layer in self.hidden_layers:
                     x_t = self.fh(layer(x_t))
-                stress_incr_t = self.layers[-1](x_t) # Last layer activation = identity
-                stress[:, t, :] = stress_prev_t + stress_incr_t
-                stress_prev_t = stress[:, t, :]
-        return stress
+                stress_incr_t = self.output_layers(x_t) # Last layer activation = identity
+                stress_curr_t = stress_prev_t + stress_incr_t
+                stress_curr[:, t+1, :] = stress_curr_t
+                stress_prev_t = stress_curr_t
+        return stress_curr
 
 # Recursive Neural Network architecture of Bhattacharya et al. 2023. https://doi.org/10.1137/22M1499200
 # Uses 2 feed-forward neural network:

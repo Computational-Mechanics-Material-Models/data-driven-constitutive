@@ -94,7 +94,7 @@ def main():
                                                                                     model_names):
         print(name)
         # Training hyperparameters
-        hyperparams = optimize_hyperparameters(modelClass, input_dim, model_hyperparams, training_hyperparams, device, X_train, y_train, epochs_hyperparams, n_trials, models_forward_extra_args, loss_yuhuilyu, R)
+        hyperparams = optimize_hyperparameters(modelClass, input_dim, model_hyperparams, training_hyperparams, device, X_train, y_train, models_forward_extra_args, epochs_hyperparams, n_trials, loss_yuhuilyu, R)
         print(f"Best hyperparameters {name}:", hyperparams)
 
         # Train model using optimized Hyperparameters
@@ -103,7 +103,7 @@ def main():
         model_hyperparams = {key:hyperparams[key] for key in hyperparams if (key != 'batch_size' and key != 'learning_rate')}
 
         model = modelClass(input_dim=input_dim, **model_hyperparams).to(device)
-        train(model, X_train, y_train, batch_size, epochs_training, learning_rate, models_forward_extra_args, loss_yuhuilyu, R)
+        train(model, X_train, y_train, models_forward_extra_args, batch_size, epochs_training, learning_rate, loss_yuhuilyu, R)
         models += [model]
 
         # TODO: store trained weights to file for use in constitutive model

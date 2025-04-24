@@ -12,11 +12,11 @@ from torch.utils.data import DataLoader, TensorDataset
 
 
 # Loss function of Yuhui Lyu
-def loss_yuhuilyu(model, X_batch, y_batch, model_forward_extra_args_list, R):
-    if (model_forward_extra_args_list == None):
+def loss_yuhuilyu(model, X_batch, y_batch, extra_args_list_batch, R):
+    if (extra_args_list_batch == None):
         y_pred = model(X_batch)
     else:
-        model(X_batch, *model_forward_extra_args_list)
+        y_pred = model(X_batch, *extra_args_list_batch)
 
     strain = X_batch.to(dtype=torch.float32) # TODO: I don't think this is necessary. Default should be torch.float32
 
@@ -68,30 +68,29 @@ def loss_yuhuilyu(model, X_batch, y_batch, model_forward_extra_args_list, R):
 
 
 # Train the model for the loss function loss_fn
-def train(model, X_train, y_train, batch_size, epochs, learning_rate, model_forward_extra_args_list, loss_fn, loss_fn_extra_args_list):
-    # Signature of loss function must be: fn(model, X, y, model_forward_extra_args_list, loss_fn_extra_args_list)
-    # loss_fun implementation must test if model takes extra arguments
-    # and call either forward(X_train, *model_forward_extra_args_list) or forward(X_train)
+def train(model, X_train, y_train, extra_args_list_train, batch_size, epochs, learning_rate, loss_fn, loss_fn_extra_args_list):
+    # Signature of loss function must be: fn(model, X, y, extra_args, loss_fn_extra_args_list)
     model.train()
 
     # Create DataLoader and optimizer
-    train_dataset = TensorDataset(X_train, y_train)
+    train_dataset = TensorDataset(X_train, y_train) if (extra_args_list_train == None) else TensorDataset(X_train, y_train, *extra_args_list_train)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     for epoch in range(epochs):
         total_loss_epoch = 0.0
-        for X_batch, y_batch in train_loader:
+        for X_batch, y_batch, *extra_batch in train_loader:
             optimizer.zero_grad()
-            loss = loss_fn(model, X_batch, y_batch, model_forward_extra_args_list, loss_fn_extra_args_list)
+            loss = loss_fn(model, X_batch, y_batch, extra_batch if len(extra_batch) > 0 else None, loss_fn_extra_args_list)
             loss.backward()
             optimizer.step()
             total_loss_epoch += loss.item()
         print(f'Epoch {epoch + 1}/{epochs} - Total Loss: {total_loss_epoch}')
     return total_loss_epoch # Return loss at last training epoch
 
+
 # Optimize hyperparameters of the model
-def optimize_hyperparameters(modelClass, model_input_size, model_hyperparams, training_hyperparams, device, X_train, y_train, epochs, n_trials, model_forward_extra_args_list, loss_fn, loss_fn_extra_args_list):
+def optimize_hyperparameters(modelClass, model_input_size, model_hyperparams, training_hyperparams, device, X_train, y_train, extra_args_list_train, epochs, n_trials, loss_fn, loss_fn_extra_args_list):
     # model_hyperparams = list of {dic of trial.suggest_type() arguments} for batch_size and learning_rate
     # model_hyperparams =  list of ('type', {dic of trial.suggest_type() arguments}) for network parameters
     # Assumes modelClass constructor is of the form modelClass(model_input_size, hyperparameter1, hyperparameter2...)
@@ -115,7 +114,7 @@ def optimize_hyperparameters(modelClass, model_input_size, model_hyperparams, tr
 
         model = modelClass(*tuple(model_args)).to(device)
         # Return final loss for Optuna to minimize
-        return train(model, X_train, y_train, batch_size, epochs, learning_rate, model_forward_extra_args_list, loss_fn, loss_fn_extra_args_list)
+        return train(model, X_train, y_train, extra_args_list_train, batch_size, epochs, learning_rate, loss_fn, loss_fn_extra_args_list)
 
     study.optimize(objective_Optuna, n_trials=n_trials)
     return study.best_params
