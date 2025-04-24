@@ -277,6 +277,7 @@ def main():
     # Train models
     models = []
     model_names = ("LSTM", "GRU")
+    models_forward_extra_args = None # Models do not take extra arguments in forward() method
 
     epochs_hyperparams = 300 # fewer amount for hyperparameters training
     n_trials = 10 # Reduce trials for debugging
@@ -289,7 +290,7 @@ def main():
                                                                                     model_names):
         print(name)
         # Training hyperparameters
-        hyperparams = optimize_hyperparameters(modelClass, input_dim, model_hyperparams, training_hyperparams, device, X_train, y_train, epochs_hyperparams, n_trials, loss_yuhuilyu, R)
+        hyperparams = optimize_hyperparameters(modelClass, input_dim, model_hyperparams, training_hyperparams, device, X_train, y_train, epochs_hyperparams, n_trials, models_forward_extra_args, loss_yuhuilyu, R)
         print(f"Best hyperparameters {name}:", hyperparams)
 
         # Train model using optimized Hyperparameters
@@ -298,7 +299,7 @@ def main():
         model_hyperparams = {key:hyperparams[key] for key in hyperparams if (key != 'batch_size' and key != 'learning_rate')}
 
         model = modelClass(input_dim=input_dim, **model_hyperparams).to(device)
-        train(model, X_train, y_train, batch_size, epochs_training, learning_rate, loss_yuhuilyu, R)
+        train(model, X_train, y_train, batch_size, epochs_training, learning_rate, models_forward_extra_args, loss_yuhuilyu, R)
         models += [model]
 
         # TODO: store trained weights to file for use in constitutive model
@@ -317,7 +318,7 @@ def main():
         # Evaluation mode to remove effect of dropout layers. Disable gradients
         model.eval()
         with torch.no_grad():
-            predictions += [model(X_test)]
+            predictions += [model(X_test)] # No extra forward arguments
 
 
     # Plot results and comparison between LSTM and GRU
