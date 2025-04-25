@@ -32,20 +32,19 @@ def main():
         device = torch.device("cpu")
         print(f"GPU {gpu_id} not available, using CPU instead.")
 
-    study_ndx = 300 # To restrict the time sequence of studied data
-    strain = strain[:, :study_ndx,:] # Strain history [batch_size, sequence_length, features]
-    stress = stress[:, :study_ndx,:] # Stress history [batch_size, sequence_length, features]
     # Import and normalize data
     normalization = 'interval'
     normalization_interval = (0,1)
     strain, stress, R = utils_yuhuilyu_data.get_data(["averaged_size_30_strain22.csv",], normalization_style=normalization, normalization_values=normalization_interval) # Hardcoded path for now, file must be in `demo` dir
+    study_ndx = 300 # To restrict the time sequence of studied data
+    strain = strain[:, :study_ndx,:] # Strain history [batch_size, sequence_length, features]
+    stress = stress[:, :study_ndx,:] # Stress history [batch_size, sequence_length, features]
     # Convert dataset to PyTorch tensors
     strain_train, strain_test, stress_train, stress_test = train_test_split(strain, stress, test_size=0.25, random_state=42)
     strain_train = torch.tensor(strain_train, dtype=torch.float32).to(device)
     stress_train = torch.tensor(stress_train, dtype=torch.float32).to(device)
     strain_test = torch.tensor(strain_test, dtype=torch.float32).to(device)
     stress_test = torch.tensor(stress_test, dtype=torch.float32).to(device)
-
 
     # ----------------- #
     # Simple linear RNN #
@@ -60,13 +59,12 @@ def main():
     batch_size = 64
     epochs = 1000
     learning_rate = 0.005
-    model_forward_extra_args_list = (stress_train,) # Stress history passed to forward() for direct training
-    train(model, strain_train, stress_train, model_forward_extra_args_list, batch_size, epochs, learning_rate, loss_yuhuilyu, R)
-    
+    train(model, strain_train, stress_train, (stress_train,), batch_size, epochs, learning_rate, loss_yuhuilyu, R) # Stress history passed as extra arg to forward() for direct training
+
     # Test model
     model.eval() # In evaluation mode, model computes stress recursively
     with torch.no_grad():
-        prediction = model(strain_test) # No stress history provided for recursive evaluation
+        prediction = model(strain_test, stress_test[:, :1, :]) # Initial stress history provided for recursive evaluation
 
     # This performs VERY POORLY. Massive error accumulates. Not a good idea
     # This is what Xu et al. 2021 call "dircet training". It seems like a good idea, why is it so bad? Maybe because I used direct data instead of increment

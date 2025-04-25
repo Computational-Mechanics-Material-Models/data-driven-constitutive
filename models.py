@@ -115,17 +115,21 @@ class rnn_linear(nn.Module):
             case 'leaky_relu':
                 self.f = F.leaky_relu # Default negative slope of 0.01
 
-    def forward(self, strain_history, stress_history = None):
-        if (self.training and self.training_style == 'direct' and stress_history == None):
-            raise ValueError("training with direct training requires extra variable strain_history")
+    def set_training_style(self, training_style):
+        self.training_style = training_style
 
+    # The extra argument is the entire stress history for direct training
+    # and the first value only [batch_size, 1, 6] for recursive training
+    def forward(self, strain_history, stress_history):
+        if (self.training and self.training_style == 'direct' and stress_history.shape[1] == 1):
+            raise ValueError("training with direct training requires extra variable strain_history for the entire sequence")
         # Assumes strain_history shape [batch_size, sequence_length, features]
         batch_size = strain_history.shape[0]
         seq_len = strain_history.shape[1]
         strain_prev = strain_history[:, :-1, :]
         strain_curr = strain_history[:, 1:, :]
-        stress_curr = torch.zeros(batch_size, seq_len, self.size_sym_tensor) # TODO: this currently assumes initial stress is zero and overwrites stress_history value if not zero. Consider changing it
-
+        stress_curr = torch.zeros(batch_size, seq_len, self.size_sym_tensor)
+        stress_curr[:, 0, :] = stress_history[:, 0, :]
         if (self.training and self.training_style == 'direct'):
             # Train model using stress history in the data as input
             stress_prev = stress_history[:, :-1, :]
@@ -138,7 +142,7 @@ class rnn_linear(nn.Module):
             stress_curr[:, 1:, :] = stress_prev + stress_incr
         else:
             # Train/Evaluate model on its own recursive prediction of stress
-            stress_prev_t = torch.zeros(batch_size, self.size_sym_tensor)  # TODO: this currently assumes initial stress is zero and overwrites stress_history value if not zero. Consider changing it
+            stress_prev_t = stress_history[:, 0, :]
             for t in range(seq_len - 1):
                 strain_prev_t = strain_prev[:, t, :]
                 strain_curr_t = strain_curr[:, t, :]
