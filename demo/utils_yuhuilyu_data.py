@@ -20,46 +20,6 @@ def generateRmatrix(angle1, angle2, angle3):
     return R
 
 
-
-
-
-
-# TODO JBC: Looks like what was in this Jupyter block and the next one could be
-# manually chosen by the user to use either / or techniques to extract X and y
-# from the data. To keep them and have them work in a regular script,
-# I refactored them into functions
-def extract_input_and_output(df_combined,
-                             sequence_length = 1000,
-                             input_n_features = 6,
-                             output_n_features = 6,
-                             input_columns = ["strain11", "strain22", "strain33", "strain12", "strain13", "strain23"],
-                             output_columns = ["stress11", "stress22", "stress33", "stress12", "stress13", "stress23"]):
-    # 重新计算符合条件的样本数
-    valid_indices = df_combined['index'].unique()
-    count = len(valid_indices)   # 每个 index 有 3 组数据
-
-    X = np.zeros((count, sequence_length, input_n_features))
-    y = np.zeros((count, sequence_length, output_n_features))
-
-    count = 0
-    for i in valid_indices:
-        df1 = df_combined[df_combined['index'] == i]
-        df1 = df1.sort_values(by="step") # In case steps are not ordered (TODO: can be disordered by previous line? or always in order and this unnecessary?)
-
-        # 按 step 递增分成三组，每组取 1000 行
-        # TODO: I don't understand what is happening here
-        # Unless there can be more than 1000 steps for a given index, df1 should always be size 1000
-        # and the code below is pointless as j=0 will always return. What am I missing?
-        for j in range(3):
-            subset = df1.iloc[j * sequence_length : (j + 1) * sequence_length]
-            if len(subset) == sequence_length:
-                X[count] = subset[input_columns].to_numpy()
-                y[count] = subset[output_columns].to_numpy()
-                count += 1
-    return X, y
-
-
-
 # TODO JBC: Looks like what was in this Jupyter block and the previous one could be
 # manually chosen by the user to use either / or techniques to extract X and y
 # from the data. To keep them and have them work in a regular script,
@@ -69,7 +29,9 @@ def extract_and_normalize_input_and_output(df_combined,
                                            input_n_features = 6,
                                            output_n_features = 6,
                                            input_columns = ["strain11", "strain22", "strain33", "strain12", "strain13", "strain23"],
-                                           output_columns = ["stress11", "stress22", "stress33", "stress12", "stress13", "stress23"]):
+                                           output_columns = ["stress11", "stress22", "stress33", "stress12", "stress13", "stress23"],
+                                           normalization_style = '[0,1]'):
+    # Normalization can be: 'none', 'logarzo', '[0,1]', [-1,1]
     # 重新计算符合条件的样本数
     valid_indices = df_combined['index'].unique()
     count = len(valid_indices)   # 每个 index 有 3 组数据
@@ -89,73 +51,63 @@ def extract_and_normalize_input_and_output(df_combined,
         for j in range(3):
             subset = df1.iloc[j * sequence_length : (j + 1) * sequence_length]
             if len(subset) == sequence_length:
-                # Standardize inputs to unit variance ?
-                # TODO: is the mean of the input zero ? If not, doing this changes the mean !
-                # TODO: IMPORTANT DISCUSSION TO HAVE: Logarzo divides by the standard deviation *per feature* and we replicate that here
-                # I don't think this is a good normalization technique.
-                # We generate rnadom histories of stress / strain that intrinsically have variation.
-                # Dividing by standard deviation changes the mean of the result
-                # and if we generate eps_11 > eps_22 but eps_11 has more variation
-                # then we could end up with a "normalized" data where eps_22 > eps_11, which is wrong
-                #
-                # I think this might be mitigated by the fact we generate all
-                # principal strains from the same GP covariance, but for frames
-                # close to principal strain frames, extra-diagonal terms may have very low low variation
-                std_devs_in = subset[input_columns].std().to_numpy()
-                std_devs_out = subset[output_columns].std().to_numpy()
-                # Avoid division by zero
-                # TODO: 1e-6 might be similar to the actual stddev so that could be a problem
-                std_devs_in[std_devs_in <= 0] = 1e-6
-                std_devs_out[std_devs_out <= 0] = 1e-6
-                X[count] = subset[input_columns].to_numpy() / std_devs_in
-                y[count] = subset[output_columns].to_numpy() / std_devs_out
+                inputs = subset[input_columns]
+                outputs = subset[output_columns]
 
-
-                # TODO: DO NOT SHARE UNDOCUMENTED COMMENTED CODE !!!!!!!!!!!!!
-                # TODO: SHOULD THIS BE USED? WHEN? HOW?
-                # NO ONE KNOWS! AND THOSE WHO DO WILL EVENTUALLY FORGET OR CHANGE JOB !
-
-                        #  # Compute normalization parameters
-                        #  X_min = subset[input_columns].min().to_numpy()  # Minimum values for each feature
-                        #  X_max = subset[input_columns].max().to_numpy()  # Maximum values for each feature
-
-                        #  X_m = (X_min + X_max) / 2  # Mean of min and max
-                        #  X_s = (X_max - X_min) / 2  # Scaling factor
-
-                        # # Normalize X using the given formula
-                        #  X[count] = (subset[input_columns].to_numpy() - X_m) / X_s
-
-                        # # Compute normalization parameters for y
-                        #  y_min = subset[output_columns].min().to_numpy()
-                        #  y_max = subset[output_columns].max().to_numpy()
-
-                        #  y_m = (y_min + y_max) / 2
-                        #  y_s = (y_max - y_min) / 2
-
-                        #  # Normalize y using the given formula
-                        #  y[count] = (subset[output_columns].to_numpy() - y_m) / y_s
-                        #  # X[count] = subset[input_columns].to_numpy()
-                        #  # y[count] = subset[output_columns].to_numpy()
-
-                # Normalize input data in range [0, 1]
-                # TODO: Normalizing between [0, 1] changes the variance again
-                # so the standardization we did prior might be better done at the end
-                # and normalization with a zero mean, e.g., between [-1, 1] might be preferred
-                # TODO IMPORTANT: This normalization per feature is problematic !
-                # If, for example all strains start at zero and evolve in the range
-                # e_11 is in [-50, 50] and e_22 is in [0, 50], then the initial
-                # values of the normalized version would be e_11_n = 0.5 and e_11_n = 0
-                # this totally changes the meaning of the strain and could complicate learning
-                X_min = subset[input_columns].min().to_numpy()
-                X_max = subset[input_columns].max().to_numpy()
-                X[count] = (subset[input_columns].to_numpy() - X_min) / (X_max - X_min)
-                y_min = subset[output_columns].min().to_numpy()
-                y_max = subset[output_columns].max().to_numpy()
-                y[count] = (subset[output_columns].to_numpy() - y_min) / (y_max - y_min)
+                match normalization_style:
+                    case 'none': # No normalization
+                        X[count] = inputs.to_numpy()
+                        y[count] = outputs.to_numpy()
+                    case 'logarzo': # Normalizes by per-feature standard deviation
+                        # Logarzo et al. 2021  Eq. (16) - (17) https://doi.org/10.1016/J.CMA.2020.113482
+                        # TODO: IMPORTANT DISCUSSION TO HAVE:
+                        # I don't think the standardization *per feature* is a good idea:
+                        # - 1. strain is tensor, is separating features relevant? should the dipersion measure employed be frame invariant? This can quickly get complex
+                        # - 2. dividing by standard deviation changes the mean, and could change relative magnitude of strain component
+                        #   - * if we generate eps_11 > eps_22 but eps_11 has more variance
+                        #       we could end up with a "normalized" data where eps_22 > eps_11, which seems wrong
+                        #       I think this might be mitigated by the fact we generate all
+                        #       principal strains from the same GP covariance, but that might just be luck
+                        std_devs_in = inputs.std().to_numpy()
+                        std_devs_out = outputs.std().to_numpy()
+                        # Avoid division by zero
+                        # TODO: 1e-6 might be similar to the actual stddev so that could be a problem
+                        std_devs_in[std_devs_in <= 0] = 1e-6
+                        std_devs_out[std_devs_out <= 0] = 1e-6
+                        X[count] = inputs.to_numpy() / std_devs_in
+                        y[count] = outputs.to_numpy() / std_devs_out
+                        # TODO: in prediction, how do you de-normalize?
+                        # The normalization is relative to the input, and is
+                        # computed over the entire sequence. You do not have
+                        # that information avaialble in online prediction but
+                        # the model is trained and expects normalized value
+                    case '[-1,1]': # Normalize over the [-1, 1] interval
+                        # TODO: I think this should be avoided because the
+                        # physical meaning of ZERO is lost. Same question as for
+                        # Logarzo method: how do you de-normalize in online
+                        # prediction? You don't know where the min/max will be!
+                        X_min = inputs.min().to_numpy()
+                        y_min = outputs.min().to_numpy()
+                        X_max = inputs.max().to_numpy()
+                        y_max = outputs.max().to_numpy()
+                        X[count] = 2.0 * (inputs.to_numpy() - X_min) / (X_max - X_min) - 1.0
+                        y[count] = 2.0 * (outputs.to_numpy() - y_min) / (y_max - y_min) - 1.0
+                    case '[0,1]': # Normalize over the unit interval [0, 1]
+                        # TODO: Same issues as [-1, 1]:
+                        # physical meaning of ZERO is lost. Same question as for
+                        # Logarzo method: how do you de-normalize in online
+                        # prediction? You don't know where the min/max will be!
+                        X_min = inputs.min().to_numpy()
+                        y_min = outputs.min().to_numpy()
+                        X_max = inputs.max().to_numpy()
+                        y_max = outputs.max().to_numpy()
+                        X[count] = (inputs.to_numpy() - X_min) / (X_max - X_min)
+                        y[count] = (outputs.to_numpy() - y_min) / (y_max - y_min)
                 count += 1
     return X, y
 
-def get_data(file_paths):
+
+def get_data(file_paths, normalization):
     # Read in and process file containing loading history for multiple tests
     # step, strain11, strain22, strain33, strain12, strain13, strain23, stress11, stress22, stress33, stress12, stress13, stress23, index, size, material
     # 1000 steps = [0 ; 999] vertically stacked for a given test, one step per row
@@ -198,10 +150,6 @@ def get_data(file_paths):
     # TODO: right now the script only uses a single matrix
     # What is the expected design to test for many random configurations?
     R=generateRmatrix(angle1[0], angle2[0], angle3[0])
-    print(R)
 
-    # TODO: figure out which one I am supposed to use and delete the other
-    X, y = extract_input_and_output(df_combined)
-    print(X.shape, y.shape)
-    X, y = extract_and_normalize_input_and_output(df_combined)
+    X, y = extract_and_normalize_input_and_output(df_combined, normalization_style=normalization)
     return X, y, R

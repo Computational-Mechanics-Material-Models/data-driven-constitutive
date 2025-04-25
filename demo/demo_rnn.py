@@ -32,11 +32,12 @@ def main():
         device = torch.device("cpu")
         print(f"GPU {gpu_id} not available, using CPU instead.")
 
-    # Import data
-    strain, stress, R = utils_yuhuilyu_data.get_data(["averaged_size_30_strain22.csv",]) # Hardcoded path for now
     study_ndx = 300 # To restrict the time sequence of studied data
     strain = strain[:, :study_ndx,:] # Strain history [batch_size, sequence_length, features]
     stress = stress[:, :study_ndx,:] # Stress history [batch_size, sequence_length, features]
+    # Import and normalize data
+    normalization = '[0,1]'
+    strain, stress, R = utils_yuhuilyu_data.get_data(["averaged_size_30_strain22.csv",], normalization=normalization) # Hardcoded path for now, file must be in `demo` dir
     # Convert dataset to PyTorch tensors
     strain_train, strain_test, stress_train, stress_test = train_test_split(strain, stress, test_size=0.25, random_state=42)
     strain_train = torch.tensor(strain_train, dtype=torch.float32).to(device)
