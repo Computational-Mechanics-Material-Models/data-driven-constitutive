@@ -32,7 +32,6 @@ def extract_and_normalize_input_and_output(df_combined,
                                            output_columns = ["stress11", "stress22", "stress33", "stress12", "stress13", "stress23"],
                                            normalization_style = 'interval',
                                            normalization_values = (0,1)):
-    # Normalization can be: 'none', 'logarzo', 'interval', 'scale'
     # 重新计算符合条件的样本数
     valid_indices = df_combined['index'].unique()
     count = len(valid_indices)   # 每个 index 有 3 组数据
@@ -114,6 +113,8 @@ def extract_and_normalize_input_and_output(df_combined,
                         y_max = outputs.max().to_numpy()
                         X[count] = inputs.to_numpy() * scaling_in
                         y[count] = outputs.to_numpy() * scaling_out
+                    case _: # Invalid choice
+                        raise ValueError("Normalization style must be be: 'none', 'logarzo', 'interval', 'scale'")
                 count += 1
     return X, y
 
