@@ -30,8 +30,9 @@ def extract_and_normalize_input_and_output(df_combined,
                                            output_n_features = 6,
                                            input_columns = ["strain11", "strain22", "strain33", "strain12", "strain13", "strain23"],
                                            output_columns = ["stress11", "stress22", "stress33", "stress12", "stress13", "stress23"],
-                                           normalization_style = '[0,1]'):
-    # Normalization can be: 'none', 'logarzo', '[0,1]', [-1,1]
+                                           normalization_style = 'interval',
+                                           normalization_values = (0,1)):
+    # Normalization can be: 'none', 'logarzo', 'interval', 'scale'
     # 重新计算符合条件的样本数
     valid_indices = df_combined['index'].unique()
     count = len(valid_indices)   # 每个 index 有 3 组数据
@@ -81,7 +82,12 @@ def extract_and_normalize_input_and_output(df_combined,
                         # computed over the entire sequence. You do not have
                         # that information avaialble in online prediction but
                         # the model is trained and expects normalized value
-                    case '[-1,1]': # Normalize over the [-1, 1] interval
+                    case 'interval': # Normalize over the chosen interval
+                        if (len(normalization_values) != 2):
+                            raise ValueError("must provide valid interval for normalization")
+                        if (normalization_values[0] >= normalization_values[1]):
+                            raise ValueError("normalization interval [l, u] must verify l < u")
+                        l, u = normalization_values
                         # TODO: I think this should be avoided because the
                         # physical meaning of ZERO is lost. Same question as for
                         # Logarzo method: how do you de-normalize in online
@@ -90,9 +96,14 @@ def extract_and_normalize_input_and_output(df_combined,
                         y_min = outputs.min().to_numpy()
                         X_max = inputs.max().to_numpy()
                         y_max = outputs.max().to_numpy()
-                        X[count] = 2.0 * (inputs.to_numpy() - X_min) / (X_max - X_min) - 1.0
-                        y[count] = 2.0 * (outputs.to_numpy() - y_min) / (y_max - y_min) - 1.0
-                    case '[0,1]': # Normalize over the unit interval [0, 1]
+                        X[count] = (u - l) * (inputs.to_numpy() - X_min) / (X_max - X_min) + u
+                        y[count] = (u - l) * (outputs.to_numpy() - y_min) / (y_max - y_min) + u
+                    case 'scale': # Normalize by scaling by a chosen factor
+                        if (len(normalization_values) != 2):
+                            raise ValueError("must provide scaling factor for both input and output")
+                        if (normalization_values[0] <= 0 or normalization_values[1] <= 0):
+                            raise ValueError("scaling factors must be positive")
+                        scaling_in, scaling_out = normalization_values
                         # TODO: Same issues as [-1, 1]:
                         # physical meaning of ZERO is lost. Same question as for
                         # Logarzo method: how do you de-normalize in online
@@ -101,13 +112,13 @@ def extract_and_normalize_input_and_output(df_combined,
                         y_min = outputs.min().to_numpy()
                         X_max = inputs.max().to_numpy()
                         y_max = outputs.max().to_numpy()
-                        X[count] = (inputs.to_numpy() - X_min) / (X_max - X_min)
-                        y[count] = (outputs.to_numpy() - y_min) / (y_max - y_min)
+                        X[count] = inputs.to_numpy() * scaling_in
+                        y[count] = outputs.to_numpy() * scaling_out
                 count += 1
     return X, y
 
 
-def get_data(file_paths, normalization):
+def get_data(file_paths, normalization_style = 'interval', normalization_values = (0,1)):
     # Read in and process file containing loading history for multiple tests
     # step, strain11, strain22, strain33, strain12, strain13, strain23, stress11, stress22, stress33, stress12, stress13, stress23, index, size, material
     # 1000 steps = [0 ; 999] vertically stacked for a given test, one step per row
@@ -151,5 +162,5 @@ def get_data(file_paths, normalization):
     # What is the expected design to test for many random configurations?
     R=generateRmatrix(angle1[0], angle2[0], angle3[0])
 
-    X, y = extract_and_normalize_input_and_output(df_combined, normalization_style=normalization)
+    X, y = extract_and_normalize_input_and_output(df_combined, normalization_style=normalization_style, normalization_values = normalization_values)
     return X, y, R
