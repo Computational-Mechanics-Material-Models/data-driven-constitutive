@@ -21,7 +21,7 @@ def loss_yuhuilyu(model, X_batch, y_batch, extra_args_list_batch, R):
     strain = X_batch.to(dtype=torch.float32) # TODO: I don't think this is necessary. Default should be torch.float32
 
     # Compute Term 1: MSE loss between predictions and ground truth
-    term1 = torch.mean(torch.sum((y_pred - y_batch) ** 2, dim=[1, 2])) # TODO: min over dim 1,2 divides by 6 which is not in the formula on Overleaf that uses the L2 norm
+    term1 = torch.mean(torch.sum((y_pred - y_batch) ** 2, dim=[1, 2])) # TODO: mean over dim 1,2 divides by 6 which is not in the formula on Overleaf that uses the L2 norm
 
     # # Compute Term 2: Rotation-based transformation
     # # TODO JBC: this makes no sense ! The whole matrix should be rotated, not just the diagonal...

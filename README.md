@@ -1,6 +1,6 @@
 # data-driven-constitutive
 
-**DO NOT UPLOAD LARGE DATA FILES TO THIS REPO**
+:warning: **DO NOT UPLOAD LARGE DATA FILES TO THIS REPO** :warning:
 
 This project contains the following modules and scripts:
 
