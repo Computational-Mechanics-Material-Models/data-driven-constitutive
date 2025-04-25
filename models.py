@@ -116,8 +116,8 @@ class rnn_linear(nn.Module):
                 self.f = F.leaky_relu # Default negative slope of 0.01
 
     def forward(self, strain_history, stress_history = None):
-        if (self.training_style == 'direct' and stress_history == None):
-            raise ValueError("direct training style requires strain_history")
+        if (self.training and self.training_style == 'direct' and stress_history == None):
+            raise ValueError("training with direct training requires extra variable strain_history")
 
         # Assumes strain_history shape [batch_size, sequence_length, features]
         batch_size = strain_history.shape[0]
@@ -146,8 +146,8 @@ class rnn_linear(nn.Module):
                              self.input_layers[1](strain_curr_t) +
                              self.input_layers[2](stress_prev_t))
                 for layer in self.hidden_layers:
-                    x_t = self.fh(layer(x_t))
-                stress_incr_t = self.output_layers(x_t) # Last layer activation = identity
+                    x_t = self.f(layer(x_t))
+                stress_incr_t = self.output_layer(x_t) # Last layer activation = identity
                 stress_curr_t = stress_prev_t + stress_incr_t
                 stress_curr[:, t+1, :] = stress_curr_t
                 stress_prev_t = stress_curr_t
