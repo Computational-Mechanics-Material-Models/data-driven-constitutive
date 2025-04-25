@@ -96,8 +96,8 @@ def extract_and_normalize_input_and_output(df_combined,
                         y_min = outputs.min().to_numpy()
                         X_max = inputs.max().to_numpy()
                         y_max = outputs.max().to_numpy()
-                        X[count] = (u - l) * (inputs.to_numpy() - X_min) / (X_max - X_min) + u
-                        y[count] = (u - l) * (outputs.to_numpy() - y_min) / (y_max - y_min) + u
+                        X[count] = (u - l) * (inputs.to_numpy() - X_min) / (X_max - X_min) + l
+                        y[count] = (u - l) * (outputs.to_numpy() - y_min) / (y_max - y_min) + l
                     case 'scale': # Normalize by scaling by a chosen factor
                         if (len(normalization_values) != 2):
                             raise ValueError("must provide scaling factor for both input and output")
