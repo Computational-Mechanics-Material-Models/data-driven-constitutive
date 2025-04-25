@@ -89,9 +89,18 @@ def extract_and_normalize_input_and_output(df_combined,
         for j in range(3):
             subset = df1.iloc[j * sequence_length : (j + 1) * sequence_length]
             if len(subset) == sequence_length:
-                # Standardize inputs to unit variance
+                # Standardize inputs to unit variance ?
                 # TODO: is the mean of the input zero ? If not, doing this changes the mean !
-                # TODO: dividing by stddev is done by Logarzo but I don't think this is a good normalization technique. Let's talk about it
+                # TODO: IMPORTANT DISCUSSION TO HAVE: Logarzo divides by the standard deviation *per feature* and we replicate that here
+                # I don't think this is a good normalization technique.
+                # We generate rnadom histories of stress / strain that intrinsically have variation.
+                # Dividing by standard deviation changes the mean of the result
+                # and if we generate eps_11 > eps_22 but eps_11 has more variation
+                # then we could end up with a "normalized" data where eps_22 > eps_11, which is wrong
+                #
+                # I think this might be mitigated by the fact we generate all
+                # principal strains from the same GP covariance, but for frames
+                # close to principal strain frames, extra-diagonal terms may have very low low variation
                 std_devs_in = subset[input_columns].std().to_numpy()
                 std_devs_out = subset[output_columns].std().to_numpy()
                 # Avoid division by zero
@@ -100,6 +109,7 @@ def extract_and_normalize_input_and_output(df_combined,
                 std_devs_out[std_devs_out <= 0] = 1e-6
                 X[count] = subset[input_columns].to_numpy() / std_devs_in
                 y[count] = subset[output_columns].to_numpy() / std_devs_out
+
 
                 # TODO: DO NOT SHARE UNDOCUMENTED COMMENTED CODE !!!!!!!!!!!!!
                 # TODO: SHOULD THIS BE USED? WHEN? HOW?
@@ -131,13 +141,14 @@ def extract_and_normalize_input_and_output(df_combined,
                 # TODO: Normalizing between [0, 1] changes the variance again
                 # so the standardization we did prior might be better done at the end
                 # and normalization with a zero mean, e.g., between [-1, 1] might be preferred
+                # TODO IMPORTANT: This normalization per feature is problematic !
+                # If, for example all strains start at zero and evolve in the range
+                # e_11 is in [-50, 50] and e_22 is in [0, 50], then the initial
+                # values of the normalized version would be e_11_n = 0.5 and e_11_n = 0
+                # this totally changes the meaning of the strain and could complicate learning
                 X_min = subset[input_columns].min().to_numpy()
                 X_max = subset[input_columns].max().to_numpy()
                 X[count] = (subset[input_columns].to_numpy() - X_min) / (X_max - X_min)
-                # Normalize output data in range [0, 1]
-                # TODO: Normalizing between [0, 1] changes the variance again
-                # so the standardization we did prior might be better done at the end
-                # and normalization with a zero mean, e.g., between [-1, 1] might be preferred
                 y_min = subset[output_columns].min().to_numpy()
                 y_max = subset[output_columns].max().to_numpy()
                 y[count] = (subset[output_columns].to_numpy() - y_min) / (y_max - y_min)
