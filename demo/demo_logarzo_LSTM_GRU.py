@@ -2,7 +2,6 @@
 
 # PyTorch demo using Logarzo RNN architecture with LSTM and GRU cells to model quasi-brittle materials
 import torch
-import numpy as np
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 from sklearn.metrics import r2_score
@@ -39,7 +38,7 @@ def main():
     normalization = 'scale'
     normalization_interval = (1.0 / 6e-4, 1.0 / 4e6) # In the data file below: |strain| < 6e-4 ; |stress| < 4e6 Pa
     X, y, R = utils_yuhuilyu_data.get_data(["averaged_size_30_strain22.csv",], normalization_style=normalization, normalization_values=normalization_interval) # Hardcoded path for now, file must be in `demo` dir
-    study_ndx = 300 # To restrict the time sequence of studied data
+    study_ndx = X.shape[1] # To restrict the time sequence of studied data
     X = X[:, :study_ndx,:] # Strain history [batch_size, sequence_length, features]
     y = y[:, :study_ndx,:] # Stress history [batch_size, sequence_length, features]
     # Convert dataset to PyTorch tensors

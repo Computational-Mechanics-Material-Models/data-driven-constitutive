@@ -88,8 +88,8 @@ class rnn_linear(nn.Module):
         super(rnn_linear, self).__init__()
         self.num_hidden = num_hidden
         self.size_hidden = size_hidden
-        self.activation = activation
-        self.training_style = training_style # 'direct', or 'recursive''
+        self.f = activation
+        self.training_style = training_style # 'direct', or 'recursive'
         self.size_sym_tensor = 6
         # Input layer: separate inputs into 3 independent partial layers
         # Makes stress as hidden variable easier than single size-18 layer
@@ -104,16 +104,6 @@ class rnn_linear(nn.Module):
             self.hidden_layers.append(nn.Linear(size_hidden, size_hidden))
         # Output layer
         self.output_layer = nn.Linear(size_hidden, self.size_sym_tensor)
-
-        match activation:
-            case 'relu':
-                self.f = F.relu
-            case 'tanh':
-                self.f = F.tanh
-            case 'sigmoid':
-                self.f = F.sigmoid
-            case 'leaky_relu':
-                self.f = F.leaky_relu # Default negative slope of 0.01
 
     def set_training_style(self, training_style):
         self.training_style = training_style

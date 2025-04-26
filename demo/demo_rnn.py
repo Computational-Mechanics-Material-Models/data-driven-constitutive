@@ -2,6 +2,7 @@
 
 # PyTorch demo using simple linear RNN to model quasi-brittle materials
 import torch
+import torch.nn.functional as F
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 from sklearn.metrics import r2_score
@@ -33,10 +34,10 @@ def main():
         print(f"GPU {gpu_id} not available, using CPU instead.")
 
     # Import and normalize data
-    normalization = 'interval'
-    normalization_interval = (0,1)
+    normalization = 'scale'
+    normalization_interval = (1.0 / 6e-4, 1.0 / 4e6) # In the data file below: |strain| < 6e-4 ; |stress| < 4e6 Pa
     strain, stress, R = utils_yuhuilyu_data.get_data(["averaged_size_30_strain22.csv",], normalization_style=normalization, normalization_values=normalization_interval) # Hardcoded path for now, file must be in `demo` dir
-    study_ndx = 300 # To restrict the time sequence of studied data
+    study_ndx = strain.shape[1] # To restrict the time sequence of studied data
     strain = strain[:, :study_ndx,:] # Strain history [batch_size, sequence_length, features]
     stress = stress[:, :study_ndx,:] # Stress history [batch_size, sequence_length, features]
     # Convert dataset to PyTorch tensors
@@ -51,8 +52,8 @@ def main():
     # ----------------- #
     num_hidden = 2 # 2 hidden layers
     size_hidden = 100 # 100 neurons per layer
-    activation = 'relu' # ReLU activation
-    training_style = 'direct' # Direct training (Xu et al. 2021), i.e., use previous stress from data rather than recursive estimate from model
+    activation = F.relu # ReLU activation
+    training_style = 'direct' # Direct training (Xu et al. 2021): use previous stress from data, rather than recursive estimate from model
     model = rnn_linear(num_hidden, size_hidden, activation, training_style)
 
     # Train model
@@ -66,8 +67,32 @@ def main():
     with torch.no_grad():
         prediction = model(strain_test, stress_test[:, :1, :]) # Initial stress history provided for recursive evaluation
 
-    # This performs VERY POORLY. Massive error accumulates. Not a good idea
-    # This is what Xu et al. 2021 call "dircet training". It seems like a good idea, why is it so bad? Maybe because I used direct data instead of increment
+    # Plot results
+    for i, (eps, sig, sig_pred) in enumerate(zip(strain_test.cpu()[:,:study_ndx,0], stress_test.cpu()[:,:study_ndx,0], prediction.cpu()[:,:study_ndx,0])):
+        r2 = r2_score(sig, sig_pred) # Compute R^2 score
+
+        # Plot true stress_11 and predicted stress_11 against strain_11
+        plt.figure(figsize=(8, 6))
+        plt.plot(eps, sig, label='Data', color='grey', marker='o', linestyle='none')
+        plt.plot(eps, sig_pred, label='linear rnn (direct training)', color='red', linestyle='--')
+        plt.title(f'Test Sample {i+1}: (R2_ {r2:.4f})')
+        plt.xlabel('e11')
+        plt.ylabel('s11')
+        plt.legend()
+        plt.show()
+        plt.close()
+    # Direct training, followed by recursive prediction performs poorly with larger error accumulation
+
+    # Recursive training from random weights starts with extremely large error that cannot be optimized well
+
+    # Attempt: use direct training as starting point for recursive training
+    model.set_training_style('recursive')
+    learning_rate *= 0.1 # We also reduce the learning rate
+    train(model, strain_train, stress_train, (stress_train[:, :1, :],), batch_size, epochs, learning_rate, loss_yuhuilyu, R)
+    # Test model
+    model.eval() # In evaluation mode, model computes stress recursively
+    with torch.no_grad():
+        prediction = model(strain_test, stress_test[:, :1, :]) # Initial stress history provided for recursive evaluation
     
     # Plot results and comparison for ff linear
     for i, (eps, sig, sig_pred) in enumerate(zip(strain_test.cpu()[:,:study_ndx,0], stress_test.cpu()[:,:study_ndx,0], prediction.cpu()[:,:study_ndx,0])):
@@ -76,13 +101,14 @@ def main():
         # Plot true stress_11 and predicted stress_11 against strain_11
         plt.figure(figsize=(8, 6))
         plt.plot(eps, sig, label='Data', color='grey', marker='o', linestyle='none')
-        plt.plot(eps, sig_pred, label='linear rnn, direct training', color='red', linestyle='--')
+        plt.plot(eps, sig_pred, label='linear rnn (recursive training after direct)', color='blue', linestyle='--')
         plt.title(f'Test Sample {i+1}: (R2_ {r2:.4f})')
         plt.xlabel('e11')
         plt.ylabel('s11')
         plt.legend()
         plt.show()
         plt.close()
+    # This performs decent. Maybe linear RNN architecture too simple ?
 
 if __name__ == "__main__":
     main()
