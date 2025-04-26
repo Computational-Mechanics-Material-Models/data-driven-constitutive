@@ -36,10 +36,10 @@ def main():
     # Import and normalize data
     normalization = 'scale'
     normalization_interval = (1.0 / 6e-4, 1.0 / 4e6) # In the data file below: |strain| < 6e-4 ; |stress| < 4e6 Pa
-    strain, stress, R = utils_yuhuilyu_data.get_data(["averaged_size_30_strain22.csv",], normalization_style=normalization, normalization_values=normalization_interval) # Hardcoded path for now, file must be in `demo` dir
-    study_ndx = strain.shape[1] # To restrict the time sequence of studied data
-    strain = strain[:, :study_ndx,:] # Strain history [batch_size, sequence_length, features]
-    stress = stress[:, :study_ndx,:] # Stress history [batch_size, sequence_length, features]
+    X, y, R = utils_yuhuilyu_data.get_data(["averaged_size_30_strain22.csv",], normalization_style=normalization, normalization_values=normalization_interval) # Hardcoded path for now, file must be in `demo` dir
+    study_ndx = X.shape[1] # To restrict the time sequence of studied data
+    strain = X[:, :study_ndx,:] # Strain history [batch_size, sequence_length, features]
+    stress = y[:, :study_ndx,:] # Stress history [batch_size, sequence_length, features]
     # Convert dataset to PyTorch tensors
     strain_train, strain_test, stress_train, stress_test = train_test_split(strain, stress, test_size=0.25, random_state=42)
     strain_train = torch.tensor(strain_train, dtype=torch.float32).to(device)
@@ -52,7 +52,7 @@ def main():
     # ----------------- #
     num_hidden = 2 # 2 hidden layers
     size_hidden = 100 # 100 neurons per layer
-    activation = F.relu # ReLU activation
+    activation = F.tanh # tanh activation to bounds response and avoid explosion in recursive prediction
     training_style = 'direct' # Direct training (Xu et al. 2021): use previous stress from data, rather than recursive estimate from model
     model = rnn_linear(num_hidden, size_hidden, activation, training_style)
 
@@ -108,7 +108,105 @@ def main():
         plt.legend()
         plt.show()
         plt.close()
-    # This performs decent. Maybe linear RNN architecture too simple ?
+    # This performs poorly as well.
+    # Maybe linear RNN architecture too simple / too fragile ?
 
+
+
+    # TEMP: Attempt to train successively on larger and larger amount of data
+    # Training on the entire strain history from the start might be too complex
+    # TODO: Clean it up and apply it to other demo. Seems to work well
+    model.set_training_style('direct')
+    learning_rate = 0.005
+
+    study_ndx = 300 # Small stress-strain range
+    strain = X[:, :study_ndx,:] # Strain history [batch_size, sequence_length, features]
+    stress = y[:, :study_ndx,:] # Stress history [batch_size, sequence_length, features]
+    # Convert dataset to PyTorch tensors
+    strain_train, strain_test, stress_train, stress_test = train_test_split(strain, stress, test_size=0.25, random_state=42)
+    strain_train = torch.tensor(strain_train, dtype=torch.float32).to(device)
+    stress_train = torch.tensor(stress_train, dtype=torch.float32).to(device)
+    strain_test = torch.tensor(strain_test, dtype=torch.float32).to(device)
+    stress_test = torch.tensor(stress_test, dtype=torch.float32).to(device)
+    #
+    train(model, strain_train, stress_train, (stress_train,), batch_size, epochs, learning_rate, loss_yuhuilyu, R) # Stress history passed as extra arg to forward() for direct training
+    model.set_training_style('recursive')
+    learning_rate *= 0.1
+    train(model, strain_train, stress_train, (stress_train,), batch_size, epochs, learning_rate, loss_yuhuilyu, R)
+    # Test model
+    model.eval() # In evaluation mode, model computes stress recursively
+    with torch.no_grad():
+        prediction = model(strain_test, stress_test[:, :1, :]) # Initial stress history provided for recursive evaluation
+    for i, (eps, sig, sig_pred) in enumerate(zip(strain_test.cpu()[:,:study_ndx,0], stress_test.cpu()[:,:study_ndx,0], prediction.cpu()[:,:study_ndx,0])):
+        r2 = r2_score(sig, sig_pred) # Compute R^2 score
+
+        # Plot true stress_11 and predicted stress_11 against strain_11
+        plt.figure(figsize=(8, 6))
+        plt.plot(eps, sig, label='Data', color='grey', marker='o', linestyle='none')
+        plt.plot(eps, sig_pred, label='linear rnn (300)', color='cyan', linestyle='--')
+        plt.title(f'Test Sample {i+1}: (R2_ {r2:.4f})')
+        plt.xlabel('e11')
+        plt.ylabel('s11')
+        plt.legend()
+        plt.show()
+        plt.close()
+    
+    study_ndx = 600 # Next range
+    strain = X[:, :study_ndx,:] # Strain history [batch_size, sequence_length, features]
+    stress = y[:, :study_ndx,:] # Stress history [batch_size, sequence_length, features]
+    # Convert dataset to PyTorch tensors
+    strain_train, strain_test, stress_train, stress_test = train_test_split(strain, stress, test_size=0.25, random_state=42)
+    strain_train = torch.tensor(strain_train, dtype=torch.float32).to(device)
+    stress_train = torch.tensor(stress_train, dtype=torch.float32).to(device)
+    strain_test = torch.tensor(strain_test, dtype=torch.float32).to(device)
+    stress_test = torch.tensor(stress_test, dtype=torch.float32).to(device)
+    #
+    train(model, strain_train, stress_train, (stress_train,), batch_size, epochs, learning_rate, loss_yuhuilyu, R) # Stress history passed as extra arg to forward() for direct training
+    # Test model
+    model.eval() # In evaluation mode, model computes stress recursively
+    with torch.no_grad():
+        prediction = model(strain_test, stress_test[:, :1, :]) # Initial stress history provided for recursive evaluation
+    for i, (eps, sig, sig_pred) in enumerate(zip(strain_test.cpu()[:,:study_ndx,0], stress_test.cpu()[:,:study_ndx,0], prediction.cpu()[:,:study_ndx,0])):
+        r2 = r2_score(sig, sig_pred) # Compute R^2 score
+
+        # Plot true stress_11 and predicted stress_11 against strain_11
+        plt.figure(figsize=(8, 6))
+        plt.plot(eps, sig, label='Data', color='grey', marker='o', linestyle='none')
+        plt.plot(eps, sig_pred, label='linear rnn (600)', color='blue', linestyle='--')
+        plt.title(f'Test Sample {i+1}: (R2_ {r2:.4f})')
+        plt.xlabel('e11')
+        plt.ylabel('s11')
+        plt.legend()
+        plt.show()
+        plt.close()
+
+    study_ndx = 1000 # All range
+    strain = X[:, :study_ndx,:] # Strain history [batch_size, sequence_length, features]
+    stress = y[:, :study_ndx,:] # Stress history [batch_size, sequence_length, features]
+    # Convert dataset to PyTorch tensors
+    strain_train, strain_test, stress_train, stress_test = train_test_split(strain, stress, test_size=0.25, random_state=42)
+    strain_train = torch.tensor(strain_train, dtype=torch.float32).to(device)
+    stress_train = torch.tensor(stress_train, dtype=torch.float32).to(device)
+    strain_test = torch.tensor(strain_test, dtype=torch.float32).to(device)
+    stress_test = torch.tensor(stress_test, dtype=torch.float32).to(device)
+    #
+    train(model, strain_train, stress_train, (stress_train,), batch_size, epochs, learning_rate, loss_yuhuilyu, R) # Stress history passed as extra arg to forward() for direct training
+    # Test model
+    model.eval() # In evaluation mode, model computes stress recursively
+    with torch.no_grad():
+        prediction = model(strain_test, stress_test[:, :1, :]) # Initial stress history provided for recursive evaluation
+    for i, (eps, sig, sig_pred) in enumerate(zip(strain_test.cpu()[:,:study_ndx,0], stress_test.cpu()[:,:study_ndx,0], prediction.cpu()[:,:study_ndx,0])):
+        r2 = r2_score(sig, sig_pred) # Compute R^2 score
+
+        # Plot true stress_11 and predicted stress_11 against strain_11
+        plt.figure(figsize=(8, 6))
+        plt.plot(eps, sig, label='Data', color='grey', marker='o', linestyle='none')
+        plt.plot(eps, sig_pred, label='linear rnn (all)', color='purple', linestyle='--')
+        plt.title(f'Test Sample {i+1}: (R2_ {r2:.4f})')
+        plt.xlabel('e11')
+        plt.ylabel('s11')
+        plt.legend()
+        plt.show()
+        plt.close()
 if __name__ == "__main__":
     main()
