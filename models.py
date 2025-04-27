@@ -118,7 +118,7 @@ class rnn_linear(nn.Module):
     # The extra argument is the entire stress history for direct training
     # and the first value only [batch_size, 1, 6] for recursive training
     def forward(self, strain_history, stress_history):
-        if (self.training and self.training_style == 'direct' and stress_history.shape[1] == 1):
+        if (self.training and self.training_style == 'direct' and stress_history.shape[1] != strain_history.shape[1]):
             raise ValueError("training with direct training requires extra variable strain_history for the entire sequence")
         # Assumes strain_history shape [batch_size, sequence_length, features]
         batch_size = strain_history.shape[0]
