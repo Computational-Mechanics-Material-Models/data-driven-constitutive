@@ -234,3 +234,95 @@ class bhattacharya_rnn(nn.Module):
         x_F = self.network_F[-1](x_F) # Last layer activation = identity
 
         return x_F
+
+# Neural network architecture based on isotropic tangent stiffness
+# TODO: add state variables after it is tested on the elastic part
+# TODO: all my nuilt-in RNN start looking the same with the training style,
+# direct training vs recursive evaluation etc
+# think about building a parent class eventually to avoid duplicating code, or
+# deleting models that don't work well as you continue development and testing
+class rnn_tangent_iso(nn.Module):
+    # For constitutive modeling, network predicts isotropic tangent stiffness K
+    # K = \lambda \mathbf {I} \otimes \mathbf {I} +2\mu {\mathsf {I}}} from
+    # previous strain e_(t-1), current strain e_t, previous stress s_(t-1), and
+    # performs forward stres update: s_t = s_(t-1) + K : (e_t - e_(t-1))
+    def __init__(self, num_hidden, size_hidden, activation, training_style):
+        super(rnn_tangent_iso, self).__init__()
+        self.num_hidden = num_hidden
+        self.size_hidden = size_hidden
+        self.f = activation
+        self.training_style = training_style # 'direct', or 'recursive'
+        self.size_sym_tensor = 6
+        self.size_tangent_operator = 2
+        # Input layer: separate inputs into 3 independent partial layers
+        # Make stress hidden and use only one set of bias
+        self.input_layers = nn.ModuleList()
+        self.input_layers.append(nn.Linear(self.size_sym_tensor, size_hidden, bias = True)) # Previous strain
+        self.input_layers.append(nn.Linear(self.size_sym_tensor, size_hidden, bias = False)) # Current strain
+        self.input_layers.append(nn.Linear(self.size_sym_tensor, size_hidden, bias = False)) # Previous stress
+        # Hidden layers
+        self.hidden_layers = nn.ModuleList()
+        for i in range(num_hidden - 1):
+            self.hidden_layers.append(nn.Linear(size_hidden, size_hidden))
+        # Output layer
+        self.output_layer = nn.Linear(size_hidden, self.size_tangent_operator)
+
+    # Turn the vectorized tangent Lame parameters into the 6x6 stiffness matrix
+    def Klame_to_K66(self, Klame):
+        shapeK66 = list(Klame.shape)[:-1]
+        shapeK66 += [6, 6]
+        K66 = torch.zeros(shapeK66)
+        lambd = Klame[..., 0]
+        twomu = 2.0 * Klame[..., 1]
+        for i in range(3):
+            K66[..., i, i] = lambd + twomu
+            K66[..., i+3, i+3] = twomu
+            K66[..., i%3, (i+1)%3] = K66[..., (i+1)%3, i%3] = lambd
+        return K66
+
+    def set_training_style(self, training_style):
+        self.training_style = training_style
+
+    # The extra argument is the entire stress history for direct training
+    # and the first value only [batch_size, 1, 6] for recursive training/eval
+    def forward(self, strain_history, stress_history):
+        if (self.training and self.training_style == 'direct' and stress_history.shape[1] != strain_history.shape[1]):
+            raise ValueError("training with direct training requires extra variable strain_history for the entire sequence")
+        # Assumes strain_history shape [batch_size, sequence_length, features (18)]
+        batch_size = strain_history.shape[0]
+        seq_len = strain_history.shape[1]
+        strain_prev = strain_history[:, :-1, :]
+        strain_curr = strain_history[:, 1:, :]
+        strain_incr = strain_curr - strain_prev
+        stress_curr = torch.zeros(batch_size, seq_len, self.size_sym_tensor)
+        stress_curr[:, 0, :] = stress_history[:, 0, :]
+        if (self.training and self.training_style == 'direct'):
+            # Train model using stress history in the data as input
+            stress_prev = stress_history[:, :-1, :]
+            x = self.f(self.input_layers[0](strain_prev) +
+                       self.input_layers[1](strain_curr) +
+                       self.input_layers[2](stress_prev))
+            for layer in self.hidden_layers:
+                x = self.f(layer(x))
+            Klame = self.output_layer(x) # Last layer activation = identity
+            K = self.Klame_to_K66(Klame)
+            stress_curr[:, 1:, :] = stress_prev + torch.matmul(K, strain_incr.unsqueeze(-1)).squeeze(-1) # unsqueeze / squeeze to batch multiply
+        else:
+            # Train/Evaluate model using its own recursive prediction of the stress
+            stress_prev_t = stress_history[:, 0, :]
+            for t in range(seq_len - 1):
+                strain_prev_t = strain_prev[:, t, :]
+                strain_curr_t = strain_curr[:, t, :]
+                strain_incr_t = strain_incr[:, t, :]
+                x_t = self.f(self.input_layers[0](strain_prev_t) +
+                             self.input_layers[1](strain_curr_t) +
+                             self.input_layers[2](stress_prev_t))
+                for layer in self.hidden_layers:
+                    x_t = self.f(layer(x_t))
+                Klame_t = self.output_layer(x_t) # Last layer activation = identity
+                K_t = self.Klame_to_K66(Klame_t)
+                stress_curr_t = stress_prev_t + torch.matmul(K_t, strain_incr_t.unsqueeze(-1)).squeeze(-1)  # unsqueeze / squeeze to batch multiply
+                stress_curr[:, t+1, :] = stress_curr_t
+                stress_prev_t = stress_curr_t
+        return stress_curr
+

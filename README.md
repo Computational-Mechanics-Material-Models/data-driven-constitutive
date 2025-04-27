@@ -2,6 +2,8 @@
 
 :warning: **DO NOT UPLOAD LARGE DATA FILES TO THIS REPO** :warning:
 
+:construction: TODO: DECIDE WHAT FOSS LICENSE TO USE AND ADD FILES
+
 This project contains the following modules and scripts:
 
 - models.py : PyTorch implementation of ANN models
