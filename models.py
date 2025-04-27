@@ -84,6 +84,13 @@ class rnn_linear(nn.Module):
     # For constitutive modeling, network predicts stress increment ds from
     # previous strain e_(t-1), current strain e_t, previous stress s_(t-1), and
     # performs forward update to current stress: s_t = s_(t-1) + ds
+    #
+    # By design, this model cannot capture behavior such as elastic damage.
+    # That is because for a given state of stress and strain, the prediction
+    # only depends on the next strain value, e.g., if you unload to zero and reload,
+    # the model will not predict a smaller (damaged) elastic modulus in the realoading
+    # because it lacks state variables to inform it that this unloaded state
+    # different from the initial never-loaded state
     def __init__(self, num_hidden, size_hidden, activation, training_style):
         super(rnn_linear, self).__init__()
         self.num_hidden = num_hidden
@@ -148,12 +155,23 @@ class rnn_linear(nn.Module):
         return stress_curr
 
 # Recursive Neural Network architecture of Bhattacharya et al. 2023. https://doi.org/10.1137/22M1499200
-# Uses 2 feed-forward neural network:
-# the first one computes the derivatives of the state variables
-# the second one compute the stress from updated state variables
+# TODO: make statevar a proper hidden variable
 class bhattacharya_rnn(nn.Module):
     def __init__(self, num_statevar, num_hidden_G, hidden_dim_G, activation_G,
                                      num_hidden_F, hidden_dim_F, activation_F):
+    # Uses 2 feed-forward neural network for constitutive modeling:
+    # First network G recursively computes derivatives of state variables xidot_t from
+    # the current strain e_t, current value of state variable xi_t and time
+    # increment dt and updates it with Forward Euler xi_(t+1) = xi_t + xidot_t * dt
+    # Second network F computes the stress from the current strain e_t, current
+    # strain derivative edot_t and current state variable xi_t
+    #
+    # By design, the derivative of state variable is independent of the loading
+    # direction, which seems wrong. i.e. state variables evolve identically
+    # regardless of the loading increment
+    # Additionally for rate-independent models, getting the time-derivative and
+    # updating would not work since the strain rate does not matter, only the
+    # strain increment.
         super(bhattacharya_rnn, self).__init__()
         self.num_statevar = num_statevar
         input_dim_G = 6 + num_statevar # input = strain (6) and state variables
