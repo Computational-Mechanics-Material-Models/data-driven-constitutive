@@ -20,10 +20,6 @@ def generateRmatrix(angle1, angle2, angle3):
     return R
 
 
-# TODO JBC: Looks like what was in this Jupyter block and the previous one could be
-# manually chosen by the user to use either / or techniques to extract X and y
-# from the data. To keep them and have them work in a regular script,
-# I refactored them into functions
 def extract_and_normalize_input_and_output(df_combined,
                                            sequence_length = 1000,
                                            input_n_features = 6,
@@ -127,7 +123,6 @@ def get_data(file_paths, normalization_style = 'interval', normalization_values 
     # material = 0 for all tests
     # size = 30 for all tests
     # TODO: I have no idea what units stress, strain, size are!
-    # TODO: Is there is any normalization?
     # TODO: Pandas uses its own `index`, so using a variable named `index` might be confusing. Consider changing name
     df_list = [pd.read_csv(file) for file in file_paths]
 
@@ -142,7 +137,6 @@ def get_data(file_paths, normalization_style = 'interval', normalization_values 
     df_combined = pd.concat(df_list, ignore_index=False)
     df_combined.dropna(inplace=True)
     df_combined = df_combined.astype(np.float64) # TODO: float 32 precise enough for ML applications?
-    print(df_combined.head(1001)) # TODO: Do not use hardcoded value !!!
     df_combined.to_csv("combined_dataset.csv", index=False)
 
 

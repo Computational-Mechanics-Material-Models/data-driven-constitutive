@@ -70,6 +70,10 @@ def loss_yuhuilyu(model, X_batch, y_batch, extra_args_list_batch, R):
 # Train the model for the loss function loss_fn
 def train(model, X_train, y_train, extra_args_list_train, batch_size, epochs, learning_rate, loss_fn, loss_fn_extra_args_list):
     # Signature of loss function must be: fn(model, X, y, extra_args, loss_fn_extra_args_list)
+    if (batch_size > X_train.shape[0]):
+        print("WARNING: batch_size larger than size of data")
+        print(f"WARNING: original batch_size ({batch_size}) decreased to {X_train.shape[0]}")
+        batch_size = X_train.shape[0]
     model.train()
 
     # Create DataLoader and optimizer
