@@ -187,8 +187,6 @@ class rnn_linear(nn.Module):
 # Recursive Neural Network architecture of Bhattacharya et al. 2023. https://doi.org/10.1137/22M1499200
 # TODO: make statevar a proper hidden variable
 class bhattacharya_rnn(nn.Module):
-    def __init__(self, num_statevar, num_hidden_G, hidden_dim_G, activation_G,
-                                     num_hidden_F, hidden_dim_F, activation_F):
     # Uses 2 feed-forward neural network for constitutive modeling:
     # First network G recursively computes derivatives of state variables xidot_t from
     # the current strain e_t, current value of state variable xi_t and time
@@ -202,24 +200,34 @@ class bhattacharya_rnn(nn.Module):
     # Additionally for rate-independent models, getting the time-derivative and
     # updating would not work since the strain rate does not matter, only the
     # strain increment.
+    def __init__(self, num_statevar, num_hidden_G, size_hidden_G, activation_G,
+                                     num_hidden_F, size_hidden_F, activation_F):
         super(bhattacharya_rnn, self).__init__()
         self.num_statevar = num_statevar
-        input_dim_G = 6 + num_statevar # input = strain (6) and state variables
-        output_dim_G = num_statevar # output = state variables
-        input_dim_F = 6 + 6 + num_statevar # input = strain (6), strain derivatives (6) and state variables
-        output_dim_F = 6 # output = stress
+        self.size_sym_tensor = 6
+        # First network G:
+        # Input layer: separate inputs into 2 independent partial layers
+        # State variables as hidden variables. Only one set of bias necessary
+        self.G_input_layers = nn.ModuleList()
+        self.G_input_layers.append(nn.Linear(self.size_sym_tensor, size_hidden_G, bias = True)) # Current strain
+        self.G_input_layers.append(nn.Linear(self.num_statevar, size_hidden_G, bias = False)) # State Variables
+
+        size_input_G = self.size_sym_tensor + num_statevar # input = strain (6) and state variables
+        size_output_G = num_statevar # output = state variables
+        size_input_F = self.size_sym_tensor + self.size_sym_tensor + num_statevar # input = strain (6), strain derivatives (6) and state variables
+        size_output_F = self.size_sym_tensor # output = stress
 
         networks = [nn.ModuleList(), nn.ModuleList()]
         activations = [None, None]
-        for n, (input_dim, num_hidden, hidden_dim, output_dim, activation) in enumerate(zip((input_dim_G, input_dim_F),
-                                                                                            (num_hidden_G, num_hidden_F),
-                                                                                            (hidden_dim_G, hidden_dim_F),
-                                                                                            (output_dim_G, output_dim_F),
-                                                                                            (activation_G, activation_F))):
-            networks[n].append(nn.Linear(input_dim, hidden_dim))
+        for n, (size_input, num_hidden, size_hidden, output_dim, activation) in enumerate(zip((size_input_G, size_input_F),
+                                                                                              (num_hidden_G, num_hidden_F),
+                                                                                              (size_hidden_G, size_hidden_F),
+                                                                                              (size_output_G, size_output_F),
+                                                                                              (activation_G, activation_F))):
+            networks[n].append(nn.Linear(size_input, size_hidden))
             for i in range(num_hidden-1):
-                networks[n].append(nn.Linear(hidden_dim, hidden_dim))
-            networks[n].append(nn.Linear(hidden_dim, output_dim))
+                networks[n].append(nn.Linear(size_hidden, size_hidden))
+            networks[n].append(nn.Linear(size_hidden, output_dim))
 
             match activation:
                 case 'selu':
@@ -237,7 +245,7 @@ class bhattacharya_rnn(nn.Module):
         self.f_G = activations[0]
         self.f_F = activations[1]
 
-    def forward(self, x):
+    def forward(self, x): # State variable always initialized at zero so no need to pass it as extra arg
         # Assumes x shape is [batch_size, sequence_length, features (13)]
         batch_size = x.shape[0]
         seq_len = x.shape[1]
@@ -251,7 +259,7 @@ class bhattacharya_rnn(nn.Module):
         statevar = torch.zeros(batch_size, seq_len, self.num_statevar)
         for i in range(seq_len - 1):
             dt = timesteps[:, i]
-            x_t = torch.cat([strain[:, i, :], statevar[:, i, :]], dim = 1)
+            x_t = torch.cat([strain[:, i, :], statevar[:, i, :]], dim = 1) # TODO, I don't want to have to do that and should make a multi-first layer with single bias like RNN
             for layer in self.network_G[:-1]:
                 x_t = self.f_G(layer(x_t))
             statevar_dot = self.network_G[-1](x_t) # Last layer activation = identity
@@ -264,6 +272,7 @@ class bhattacharya_rnn(nn.Module):
         x_F = self.network_F[-1](x_F) # Last layer activation = identity
 
         return x_F
+
 
 # Neural network architecture based on isotropic tangent stiffness
 # TODO: add state variables after it is tested on the elastic part
